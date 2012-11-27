@@ -1,0 +1,51 @@
+body{
+  display:inline-block;
+  margin:0;
+  width:100%;
+}
+#frame{
+  border:solid 2px #353535;
+  width:550px;
+  height:700px;
+  display: inline-block;
+  margin-left: 35px;
+  margin-top: 11px;
+}
+
+header{
+  display: inline-block;
+  vertical-align: top;
+  padding-top: 10px;
+  padding-left: 11px;
+  width:700px;
+}
+header h1{
+  margin:0;
+  font-family:'Georgia';
+  font-size:36px;
+  font-style:italic;
+}
+
+header p{
+  text-align:justify;
+}
+nav{
+  width:700px;
+}
+nav #prev{
+  float:left;
+}
+
+nav #next{
+  float:right;
+}
+
+header a{
+  font-style:italic;
+  color: rgb(35,35,35);
+  font-weight:600;
+}
+
+header a:hover{
+  opacity:0.8;
+}
