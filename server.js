@@ -4,8 +4,7 @@
  */
 
 var express = require('express')
-  , pjax = require('express-pjax')
-  , routes = require('./routes')
+  , routes = require('./routes');
 
 var app = module.exports = express();
 
@@ -14,7 +13,6 @@ var app = module.exports = express();
 app.configure(function(){
   app.set('views', __dirname + '/views');
   app.set('view engine', 'html');
-  app.use(pjax());
   app.use(express.bodyParser());
   app.use(express.methodOverride());
   app.use(app.router);
@@ -31,11 +29,11 @@ app.configure('production', function(){
 
 // Routes
 
-//app.get('/1', routes.index);
-//app.get('/2', routes.dinosaurs);
-//app.get('/3', routes.aliens);
+app.get('/1', routes.robots);
+app.get('/2', routes.dinosaurs);
+app.get('/3', routes.aliens);
 
-var x = app.listen(3117, function(){
+app.listen(3117, function(){
   console.log("Express server listening on port %d in %s mode", this.address().port, app.settings.env);
   
 });

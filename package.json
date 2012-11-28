@@ -1,0 +1,16 @@
+{
+  "name": "derrida",
+  "subdomain": "lyaunzbe.derrida",
+  "scripts": {
+    "start": "server.js"
+  },
+  "version": "0.0.0-6",
+  "engines": {
+    "node": "0.8.x"
+  },
+  "dependencies": {
+    "gm": "1.6.x",
+    "express": "3.0.x",
+    "async": "0.1.x"
+  }
+}
