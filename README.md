@@ -1,3 +1,3 @@
-CHECK IT OUT AT lyaunzbe.derrida.jit.su
+CHECK IT OUT AT http://www.lyaunzbe.derrida.jit.su
 
 (WORK IN PROGRESSO)
