@@ -1,17 +1,30 @@
 body{
+  font-family: 'Oswald', sans-serif;
+  background:url('../img/bg.png');
+  background-color:rgb(213,222,217);
   display:inline-block;
   margin:0;
   width:100%;
 }
 #frame{
-  border:solid 2px #353535;
-  width:550px;
-  height:700px;
+}
+
+.v1{
+  border:solid 2px #383838;  
   display: inline-block;
   margin-left: 35px;
   margin-top: 11px;
+
 }
 
+.v2{
+  /*width:700px;*/
+  /*margin:0 auto;*/
+  /*margin-top:auto;*/
+  border:none;
+  position:absolute; top:0; bottom:0; left:0; right:0;
+			margin:auto; height:500px; width:700px;
+}
 header{
   display: inline-block;
   vertical-align: top;
@@ -21,13 +34,21 @@ header{
 }
 header h1{
   margin:0;
-  font-family:'Georgia';
+  font-weight:400;
   font-size:36px;
-  font-style:italic;
+  letter-spacing:5px;
+}
+
+header h1:hover{
+  opacity:0.4;
+  -webkit-transition:opacity 1s 0s ease-out;
 }
 
 header p{
+  color:#3B3B3B;
+  
   text-align:justify;
+  font-weight:300;
 }
 nav{
   width:700px;

@@ -1,7 +1,7 @@
 /*!
   * =============================================================
   * Ender: open module JavaScript framework (https://ender.no.de)
-  * Build: ender build domready qwery bonzo bean
+  * Build: ender build morpheus bean bonzo domready qwery jeesh
   * =============================================================
   */
 
@@ -130,72 +130,421 @@
   var module = { exports: {} }, exports = module.exports;
 
   /*!
-    * domready (c) Dustin Diaz 2012 - License MIT
+    * Morpheus - A Brilliant Animator
+    * https://github.com/ded/morpheus - (c) Dustin Diaz 2011
+    * License MIT
     */
   !function (name, definition) {
-    if (typeof module != 'undefined') module.exports = definition()
-    else if (typeof define == 'function' && typeof define.amd == 'object') define(definition)
+    if (typeof define == 'function') define(definition)
+    else if (typeof module != 'undefined') module.exports = definition()
     else this[name] = definition()
-  }('domready', function (ready) {
+  }('morpheus', function () {
   
-    var fns = [], fn, f = false
+    var context = this
       , doc = document
-      , testEl = doc.documentElement
-      , hack = testEl.doScroll
-      , domContentLoaded = 'DOMContentLoaded'
-      , addEventListener = 'addEventListener'
-      , onreadystatechange = 'onreadystatechange'
-      , readyState = 'readyState'
-      , loaded = /^loade|c/.test(doc[readyState])
+      , win = window
+      , html = doc.documentElement
+      , thousand = 1000
+      , rgbOhex = /^rgb\(|#/
+      , relVal = /^([+\-])=([\d\.]+)/
+      , numUnit = /^(?:[\+\-]=)?\d+(?:\.\d+)?(%|in|cm|mm|em|ex|pt|pc|px)$/
+      , rotate = /rotate\(((?:[+\-]=)?([\-\d\.]+))deg\)/
+      , scale = /scale\(((?:[+\-]=)?([\d\.]+))\)/
+      , skew = /skew\(((?:[+\-]=)?([\-\d\.]+))deg, ?((?:[+\-]=)?([\-\d\.]+))deg\)/
+      , translate = /translate\(((?:[+\-]=)?([\-\d\.]+))px, ?((?:[+\-]=)?([\-\d\.]+))px\)/
+        // these elements do not require 'px'
+      , unitless = { lineHeight: 1, zoom: 1, zIndex: 1, opacity: 1, transform: 1}
   
-    function flush(f) {
-      loaded = 1
-      while (f = fns.shift()) f()
+        // which property name does this browser use for transform
+      , transform = function () {
+          var styles = doc.createElement('a').style
+            , props = ['webkitTransform','MozTransform','OTransform','msTransform','Transform'], i
+          for (i = 0; i < props.length; i++) {
+            if (props[i] in styles) return props[i]
+          }
+        }()
+  
+        // does this browser support the opacity property?
+      , opasity = function () {
+          return typeof doc.createElement('a').style.opacity !== 'undefined'
+        }()
+  
+        // initial style is determined by the elements themselves
+      , getStyle = doc.defaultView && doc.defaultView.getComputedStyle ?
+          function (el, property) {
+            property = property == 'transform' ? transform : property
+            var value = null
+              , computed = doc.defaultView.getComputedStyle(el, '')
+            computed && (value = computed[camelize(property)])
+            return el.style[property] || value
+          } : html.currentStyle ?
+  
+          function (el, property) {
+            property = camelize(property)
+  
+            if (property == 'opacity') {
+              var val = 100
+              try {
+                val = el.filters['DXImageTransform.Microsoft.Alpha'].opacity
+              } catch (e1) {
+                try {
+                  val = el.filters('alpha').opacity
+                } catch (e2) {}
+              }
+              return val / 100
+            }
+            var value = el.currentStyle ? el.currentStyle[property] : null
+            return el.style[property] || value
+          } :
+          function (el, property) {
+            return el.style[camelize(property)]
+          }
+      , frame = function () {
+          // native animation frames
+          // http://webstuff.nfshost.com/anim-timing/Overview.html
+          // http://dev.chromium.org/developers/design-documents/requestanimationframe-implementation
+          return win.requestAnimationFrame  ||
+            win.webkitRequestAnimationFrame ||
+            win.mozRequestAnimationFrame    ||
+            win.oRequestAnimationFrame      ||
+            win.msRequestAnimationFrame     ||
+            function (callback) {
+              win.setTimeout(function () {
+                callback(+new Date())
+              }, 11) // these go to eleven
+            }
+        }()
+      , children = []
+  
+    function has(array, elem, i) {
+      if (Array.prototype.indexOf) return array.indexOf(elem)
+      for (i = 0; i < array.length; ++i) {
+        if (array[i] === elem) return i
+      }
     }
   
-    doc[addEventListener] && doc[addEventListener](domContentLoaded, fn = function () {
-      doc.removeEventListener(domContentLoaded, fn, f)
-      flush()
-    }, f)
-  
-  
-    hack && doc.attachEvent(onreadystatechange, fn = function () {
-      if (/^c/.test(doc[readyState])) {
-        doc.detachEvent(onreadystatechange, fn)
-        flush()
+    function render(t) {
+      var i, count = children.length
+      for (i = count; i--;) {
+        children[i](t)
       }
-    })
+      children.length && frame(render)
+    }
   
-    return (ready = hack ?
-      function (fn) {
-        self != top ?
-          loaded ? fn() : fns.push(fn) :
-          function () {
-            try {
-              testEl.doScroll('left')
-            } catch (e) {
-              return setTimeout(function() { ready(fn) }, 50)
-            }
-            fn()
-          }()
-      } :
-      function (fn) {
-        loaded ? fn() : fns.push(fn)
+    function live(f) {
+      if (children.push(f) === 1) frame(render)
+    }
+  
+    function die(f) {
+      var i, rest, index = has(children, f)
+      if (index >= 0) {
+        rest = children.slice(index+1)
+        children.length = index
+        children = children.concat(rest)
+      }
+    }
+  
+    function parseTransform(style, base) {
+      var values = {}, m
+      if (m = style.match(rotate)) values.rotate = by(m[1], base ? base.rotate : null)
+      if (m = style.match(scale)) values.scale = by(m[1], base ? base.scale : null)
+      if (m = style.match(skew)) {values.skewx = by(m[1], base ? base.skewx : null); values.skewy = by(m[3], base ? base.skewy : null)}
+      if (m = style.match(translate)) {values.translatex = by(m[1], base ? base.translatex : null); values.translatey = by(m[3], base ? base.translatey : null)}
+      return values
+    }
+  
+    function formatTransform(v) {
+      var s = ''
+      if ('rotate' in v) s += 'rotate(' + v.rotate + 'deg) '
+      if ('scale' in v) s += 'scale(' + v.scale + ') '
+      if ('translatex' in v) s += 'translate(' + v.translatex + 'px,' + v.translatey + 'px) '
+      if ('skewx' in v) s += 'skew(' + v.skewx + 'deg,' + v.skewy + 'deg)'
+      return s
+    }
+  
+    function rgb(r, g, b) {
+      return '#' + (1 << 24 | r << 16 | g << 8 | b).toString(16).slice(1)
+    }
+  
+    // convert rgb and short hex to long hex
+    function toHex(c) {
+      var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c)
+      return (m ? rgb(m[1], m[2], m[3]) : c)
+        .replace(/#(\w)(\w)(\w)$/, '#$1$1$2$2$3$3') // short skirt to long jacket
+    }
+  
+    // change font-size => fontSize etc.
+    function camelize(s) {
+      return s.replace(/-(.)/g, function (m, m1) {
+        return m1.toUpperCase()
       })
+    }
+  
+    // aren't we having it?
+    function fun(f) {
+      return typeof f == 'function'
+    }
+  
+    /**
+      * Core tween method that requests each frame
+      * @param duration: time in milliseconds. defaults to 1000
+      * @param fn: tween frame callback function receiving 'position'
+      * @param done {optional}: complete callback function
+      * @param ease {optional}: easing method. defaults to easeOut
+      * @param from {optional}: integer to start from
+      * @param to {optional}: integer to end at
+      * @returns method to stop the animation
+      */
+    function tween(duration, fn, done, ease, from, to) {
+      ease = fun(ease) ? ease : morpheus.easings[ease] || function (t) {
+        // default to a pleasant-to-the-eye easeOut (like native animations)
+        return Math.sin(t * Math.PI / 2)
+      }
+      var time = duration || thousand
+        , self = this
+        , diff = to - from
+        , start = +new Date()
+        , stop = 0
+        , end = 0
+      live(run)
+  
+      function run(t) {
+        var delta = t - start
+        if (delta > time || stop) {
+          to = isFinite(to) ? to : 1
+          stop ? end && fn(to) : fn(to)
+          die(run)
+          return done && done.apply(self)
+        }
+        // if you don't specify a 'to' you can use tween as a generic delta tweener
+        // cool, eh?
+        isFinite(to) ?
+          fn((diff * ease(delta / time)) + from) :
+          fn(ease(delta / time))
+      }
+      return {
+        stop: function (jump) {
+          stop = 1
+          end = jump // jump to end of animation?
+          if (!jump) done = null // remove callback if not jumping to end
+        }
+      }
+    }
+  
+    /**
+      * generic bezier method for animating x|y coordinates
+      * minimum of 2 points required (start and end).
+      * first point start, last point end
+      * additional control points are optional (but why else would you use this anyway ;)
+      * @param points: array containing control points
+         [[0, 0], [100, 200], [200, 100]]
+      * @param pos: current be(tween) position represented as float  0 - 1
+      * @return [x, y]
+      */
+    function bezier(points, pos) {
+      var n = points.length, r = [], i, j
+      for (i = 0; i < n; ++i) {
+        r[i] = [points[i][0], points[i][1]]
+      }
+      for (j = 1; j < n; ++j) {
+        for (i = 0; i < n - j; ++i) {
+          r[i][0] = (1 - pos) * r[i][0] + pos * r[parseInt(i + 1, 10)][0]
+          r[i][1] = (1 - pos) * r[i][1] + pos * r[parseInt(i + 1, 10)][1]
+        }
+      }
+      return [r[0][0], r[0][1]]
+    }
+  
+    // this gets you the next hex in line according to a 'position'
+    function nextColor(pos, start, finish) {
+      var r = [], i, e, from, to
+      for (i = 0; i < 6; i++) {
+        from = Math.min(15, parseInt(start.charAt(i),  16))
+        to   = Math.min(15, parseInt(finish.charAt(i), 16))
+        e = Math.floor((to - from) * pos + from)
+        e = e > 15 ? 15 : e < 0 ? 0 : e
+        r[i] = e.toString(16)
+      }
+      return '#' + r.join('')
+    }
+  
+    // this retreives the frame value within a sequence
+    function getTweenVal(pos, units, begin, end, k, i, v) {
+      if (k == 'transform') {
+        v = {}
+        for(var t in begin[i][k]) {
+          v[t] = (t in end[i][k]) ? Math.round(((end[i][k][t] - begin[i][k][t]) * pos + begin[i][k][t]) * thousand) / thousand : begin[i][k][t]
+        }
+        return v
+      } else if (typeof begin[i][k] == 'string') {
+        return nextColor(pos, begin[i][k], end[i][k])
+      } else {
+        // round so we don't get crazy long floats
+        v = Math.round(((end[i][k] - begin[i][k]) * pos + begin[i][k]) * thousand) / thousand
+        // some css properties don't require a unit (like zIndex, lineHeight, opacity)
+        if (!(k in unitless)) v += units[i][k] || 'px'
+        return v
+      }
+    }
+  
+    // support for relative movement via '+=n' or '-=n'
+    function by(val, start, m, r, i) {
+      return (m = relVal.exec(val)) ?
+        (i = parseFloat(m[2])) && (start + (m[1] == '+' ? 1 : -1) * i) :
+        parseFloat(val)
+    }
+  
+    /**
+      * morpheus:
+      * @param element(s): HTMLElement(s)
+      * @param options: mixed bag between CSS Style properties & animation options
+      *  - {n} CSS properties|values
+      *     - value can be strings, integers,
+      *     - or callback function that receives element to be animated. method must return value to be tweened
+      *     - relative animations start with += or -= followed by integer
+      *  - duration: time in ms - defaults to 1000(ms)
+      *  - easing: a transition method - defaults to an 'easeOut' algorithm
+      *  - complete: a callback method for when all elements have finished
+      *  - bezier: array of arrays containing x|y coordinates that define the bezier points. defaults to none
+      *     - this may also be a function that receives element to be animated. it must return a value
+      */
+    function morpheus(elements, options) {
+      var els = elements ? (els = isFinite(elements.length) ? elements : [elements]) : [], i
+        , complete = options.complete
+        , duration = options.duration
+        , ease = options.easing
+        , points = options.bezier
+        , begin = []
+        , end = []
+        , units = []
+        , bez = []
+        , originalLeft
+        , originalTop
+  
+      delete options.complete;
+      delete options.duration;
+      delete options.easing;
+      delete options.bezier;
+  
+      if (points) {
+        // remember the original values for top|left
+        originalLeft = options.left;
+        originalTop = options.top;
+        delete options.right;
+        delete options.bottom;
+        delete options.left;
+        delete options.top;
+      }
+  
+      for (i = els.length; i--;) {
+  
+        // record beginning and end states to calculate positions
+        begin[i] = {}
+        end[i] = {}
+        units[i] = {}
+  
+        // are we 'moving'?
+        if (points) {
+  
+          var left = getStyle(els[i], 'left')
+            , top = getStyle(els[i], 'top')
+            , xy = [by(fun(originalLeft) ? originalLeft(els[i]) : originalLeft || 0, parseFloat(left)),
+                    by(fun(originalTop) ? originalTop(els[i]) : originalTop || 0, parseFloat(top))]
+  
+          bez[i] = fun(points) ? points(els[i], xy) : points
+          bez[i].push(xy)
+          bez[i].unshift([
+              parseInt(left, 10)
+            , parseInt(top, 10)
+          ])
+        }
+  
+        for (var k in options) {
+          var v = getStyle(els[i], k), unit
+            , tmp = fun(options[k]) ? options[k](els[i]) : options[k]
+          if (typeof tmp == 'string' &&
+              rgbOhex.test(tmp) &&
+              !rgbOhex.test(v)) {
+            delete options[k]; // remove key :(
+            continue; // cannot animate colors like 'orange' or 'transparent'
+                      // only #xxx, #xxxxxx, rgb(n,n,n)
+          }
+  
+          begin[i][k] = k == 'transform' ? parseTransform(v) :
+            typeof tmp == 'string' && rgbOhex.test(tmp) ?
+              toHex(v).slice(1) :
+              parseFloat(v)
+          end[i][k] = k == 'transform' ? parseTransform(tmp,begin[i][k]) :
+            typeof tmp == 'string' && tmp.charAt(0) == '#' ?
+              toHex(tmp).slice(1) :
+              by(tmp, parseFloat(v));
+          // record original unit
+          (typeof tmp == 'string') && (unit = tmp.match(numUnit)) && (units[i][k] = unit[1])
+        }
+      }
+      // ONE TWEEN TO RULE THEM ALL
+      return tween.apply(els, [duration, function (pos, v, xy) {
+        // normally not a fan of optimizing for() loops, but we want something
+        // fast for animating
+        for (i = els.length; i--;) {
+          if (points) {
+            xy = bezier(bez[i], pos)
+            els[i].style.left = xy[0] + 'px'
+            els[i].style.top = xy[1] + 'px'
+          }
+          for (var k in options) {
+            v = getTweenVal(pos, units, begin, end, k, i)
+            k == 'transform' ?
+              els[i].style[transform] = formatTransform(v) :
+              k == 'opacity' && !opasity ?
+                (els[i].style.filter = 'alpha(opacity=' + (v * 100) + ')') :
+                (els[i].style[camelize(k)] = v)
+          }
+        }
+      }, complete, ease])
+    }
+  
+    // expose useful methods
+    morpheus.tween = tween
+    morpheus.getStyle = getStyle
+    morpheus.bezier = bezier
+    morpheus.transform = transform
+    morpheus.parseTransform = parseTransform
+    morpheus.formatTransform = formatTransform
+    morpheus.easings = {}
+  
+    return morpheus
+  
   })
+  
 
-  provide("domready", module.exports);
+  provide("morpheus", module.exports);
 
+  var morpheus = require('morpheus')
   !function ($) {
-    var ready = require('domready')
-    $.ender({domReady: ready})
     $.ender({
-      ready: function (f) {
-        ready(f)
-        return this
+      animate: function (options) {
+        return morpheus(this, options)
+      }
+    , fadeIn: function (d, fn) {
+        return morpheus(this, {
+            duration: d
+          , opacity: 1
+          , complete: fn
+        })
+      }
+    , fadeOut: function (d, fn) {
+        return morpheus(this, {
+            duration: d
+          , opacity: 0
+          , complete: fn
+        })
       }
     }, true)
-  }(ender);
+    $.ender({
+      tween: morpheus.tween
+    })
+  }(ender)
 
 }());
 
@@ -204,441 +553,811 @@
   var module = { exports: {} }, exports = module.exports;
 
   /*!
-    * @preserve Qwery - A Blazing Fast query selector engine
-    * https://github.com/ded/qwery
-    * copyright Dustin Diaz 2012
-    * MIT License
+    * Bean - copyright (c) Jacob Thornton 2011-2012
+    * https://github.com/fat/bean
+    * MIT license
     */
+  !(function (name, context, definition) {
+    if (typeof module != 'undefined' && module.exports) module.exports = definition(name, context);
+    else if (typeof define == 'function' && typeof define.amd  == 'object') define(definition);
+    else context[name] = definition(name, context);
+  }('bean', this, function (name, context) {
+    var win            = window
+      , old            = context[name]
+      , namespaceRegex = /[^\.]*(?=\..*)\.|.*/
+      , nameRegex      = /\..*/
+      , addEvent       = 'addEventListener'
+      , removeEvent    = 'removeEventListener'
+      , doc            = document || {}
+      , root           = doc.documentElement || {}
+      , W3C_MODEL      = root[addEvent]
+      , eventSupport   = W3C_MODEL ? addEvent : 'attachEvent'
+      , ONE            = {} // singleton for quick matching making add() do one()
   
-  (function (name, context, definition) {
-    if (typeof module != 'undefined' && module.exports) module.exports = definition()
-    else if (typeof context['define'] == 'function' && context['define']['amd']) define(definition)
-    else context[name] = definition()
-  })('qwery', this, function () {
-    var doc = document
-      , html = doc.documentElement
-      , byClass = 'getElementsByClassName'
-      , byTag = 'getElementsByTagName'
-      , qSA = 'querySelectorAll'
-      , useNativeQSA = 'useNativeQSA'
-      , tagName = 'tagName'
-      , nodeType = 'nodeType'
-      , select // main select() method, assign later
+      , slice          = Array.prototype.slice
+      , str2arr        = function (s, d) { return s.split(d || ' ') }
+      , isString       = function (o) { return typeof o == 'string' }
+      , isFunction     = function (o) { return typeof o == 'function' }
   
-      , id = /#([\w\-]+)/
-      , clas = /\.[\w\-]+/g
-      , idOnly = /^#([\w\-]+)$/
-      , classOnly = /^\.([\w\-]+)$/
-      , tagOnly = /^([\w\-]+)$/
-      , tagAndOrClass = /^([\w]+)?\.([\w\-]+)$/
-      , splittable = /(^|,)\s*[>~+]/
-      , normalizr = /^\s+|\s*([,\s\+\~>]|$)\s*/g
-      , splitters = /[\s\>\+\~]/
-      , splittersMore = /(?![\s\w\-\/\?\&\=\:\.\(\)\!,@#%<>\{\}\$\*\^'"]*\]|[\s\w\+\-]*\))/
-      , specialChars = /([.*+?\^=!:${}()|\[\]\/\\])/g
-      , simple = /^(\*|[a-z0-9]+)?(?:([\.\#]+[\w\-\.#]+)?)/
-      , attr = /\[([\w\-]+)(?:([\|\^\$\*\~]?\=)['"]?([ \w\-\/\?\&\=\:\.\(\)\!,@#%<>\{\}\$\*\^]+)["']?)?\]/
-      , pseudo = /:([\w\-]+)(\(['"]?([^()]+)['"]?\))?/
-      , easy = new RegExp(idOnly.source + '|' + tagOnly.source + '|' + classOnly.source)
-      , dividers = new RegExp('(' + splitters.source + ')' + splittersMore.source, 'g')
-      , tokenizr = new RegExp(splitters.source + splittersMore.source)
-      , chunker = new RegExp(simple.source + '(' + attr.source + ')?' + '(' + pseudo.source + ')?')
+        // events that we consider to be 'native', anything not in this list will
+        // be treated as a custom event
+      , standardNativeEvents =
+          'click dblclick mouseup mousedown contextmenu '                  + // mouse buttons
+          'mousewheel mousemultiwheel DOMMouseScroll '                     + // mouse wheel
+          'mouseover mouseout mousemove selectstart selectend '            + // mouse movement
+          'keydown keypress keyup '                                        + // keyboard
+          'orientationchange '                                             + // mobile
+          'focus blur change reset select submit '                         + // form elements
+          'load unload beforeunload resize move DOMContentLoaded '         + // window
+          'readystatechange message '                                      + // window
+          'error abort scroll '                                              // misc
+        // element.fireEvent('onXYZ'... is not forgiving if we try to fire an event
+        // that doesn't actually exist, so make sure we only do these on newer browsers
+      , w3cNativeEvents =
+          'show '                                                          + // mouse buttons
+          'input invalid '                                                 + // form elements
+          'touchstart touchmove touchend touchcancel '                     + // touch
+          'gesturestart gesturechange gestureend '                         + // gesture
+          'textinput'                                                      + // TextEvent
+          'readystatechange pageshow pagehide popstate '                   + // window
+          'hashchange offline online '                                     + // window
+          'afterprint beforeprint '                                        + // printing
+          'dragstart dragenter dragover dragleave drag drop dragend '      + // dnd
+          'loadstart progress suspend emptied stalled loadmetadata '       + // media
+          'loadeddata canplay canplaythrough playing waiting seeking '     + // media
+          'seeked ended durationchange timeupdate play pause ratechange '  + // media
+          'volumechange cuechange '                                        + // media
+          'checking noupdate downloading cached updateready obsolete '       // appcache
   
-    var walker = {
-        ' ': function (node) {
-          return node && node !== html && node.parentNode
+        // convert to a hash for quick lookups
+      , nativeEvents = (function (hash, events, i) {
+          for (i = 0; i < events.length; i++) events[i] && (hash[events[i]] = 1)
+          return hash
+        }({}, str2arr(standardNativeEvents + (W3C_MODEL ? w3cNativeEvents : ''))))
+  
+        // custom events are events that we *fake*, they are not provided natively but
+        // we can use native events to generate them
+      , customEvents = (function () {
+          var isAncestor = 'compareDocumentPosition' in root
+                ? function (element, container) {
+                    return container.compareDocumentPosition && (container.compareDocumentPosition(element) & 16) === 16
+                  }
+                : 'contains' in root
+                  ? function (element, container) {
+                      container = container.nodeType === 9 || container === window ? root : container
+                      return container !== element && container.contains(element)
+                    }
+                  : function (element, container) {
+                      while (element = element.parentNode) if (element === container) return 1
+                      return 0
+                    }
+            , check = function (event) {
+                var related = event.relatedTarget
+                return !related
+                  ? related == null
+                  : (related !== this && related.prefix !== 'xul' && !/document/.test(this.toString())
+                      && !isAncestor(related, this))
+              }
+  
+          return {
+              mouseenter: { base: 'mouseover', condition: check }
+            , mouseleave: { base: 'mouseout', condition: check }
+            , mousewheel: { base: /Firefox/.test(navigator.userAgent) ? 'DOMMouseScroll' : 'mousewheel' }
+          }
+        }())
+  
+        // we provide a consistent Event object across browsers by taking the actual DOM
+        // event object and generating a new one from its properties.
+      , Event = (function () {
+              // a whitelist of properties (for different event types) tells us what to check for and copy
+          var commonProps  = str2arr('altKey attrChange attrName bubbles cancelable ctrlKey currentTarget ' +
+                'detail eventPhase getModifierState isTrusted metaKey relatedNode relatedTarget shiftKey '  +
+                'srcElement target timeStamp type view which propertyName')
+            , mouseProps   = commonProps.concat(str2arr('button buttons clientX clientY dataTransfer '      +
+                'fromElement offsetX offsetY pageX pageY screenX screenY toElement'))
+            , mouseWheelProps = mouseProps.concat(str2arr('wheelDelta wheelDeltaX wheelDeltaY wheelDeltaZ ' +
+                'axis')) // 'axis' is FF specific
+            , keyProps     = commonProps.concat(str2arr('char charCode key keyCode keyIdentifier '          +
+                'keyLocation location'))
+            , textProps    = commonProps.concat(str2arr('data'))
+            , touchProps   = commonProps.concat(str2arr('touches targetTouches changedTouches scale rotation'))
+            , messageProps = commonProps.concat(str2arr('data origin source'))
+            , stateProps   = commonProps.concat(str2arr('state'))
+            , overOutRegex = /over|out/
+              // some event types need special handling and some need special properties, do that all here
+            , typeFixers   = [
+                  { // key events
+                      reg: /key/i
+                    , fix: function (event, newEvent) {
+                        newEvent.keyCode = event.keyCode || event.which
+                        return keyProps
+                      }
+                  }
+                , { // mouse events
+                      reg: /click|mouse(?!(.*wheel|scroll))|menu|drag|drop/i
+                    , fix: function (event, newEvent, type) {
+                        newEvent.rightClick = event.which === 3 || event.button === 2
+                        newEvent.pos = { x: 0, y: 0 }
+                        if (event.pageX || event.pageY) {
+                          newEvent.clientX = event.pageX
+                          newEvent.clientY = event.pageY
+                        } else if (event.clientX || event.clientY) {
+                          newEvent.clientX = event.clientX + doc.body.scrollLeft + root.scrollLeft
+                          newEvent.clientY = event.clientY + doc.body.scrollTop + root.scrollTop
+                        }
+                        if (overOutRegex.test(type)) {
+                          newEvent.relatedTarget = event.relatedTarget
+                            || event[(type == 'mouseover' ? 'from' : 'to') + 'Element']
+                        }
+                        return mouseProps
+                      }
+                  }
+                , { // mouse wheel events
+                      reg: /mouse.*(wheel|scroll)/i
+                    , fix: function () { return mouseWheelProps }
+                  }
+                , { // TextEvent
+                      reg: /^text/i
+                    , fix: function () { return textProps }
+                  }
+                , { // touch and gesture events
+                      reg: /^touch|^gesture/i
+                    , fix: function () { return touchProps }
+                  }
+                , { // message events
+                      reg: /^message$/i
+                    , fix: function () { return messageProps }
+                  }
+                , { // popstate events
+                      reg: /^popstate$/i
+                    , fix: function () { return stateProps }
+                  }
+                , { // everything else
+                      reg: /.*/
+                    , fix: function () { return commonProps }
+                  }
+              ]
+            , typeFixerMap = {} // used to map event types to fixer functions (above), a basic cache mechanism
+  
+            , Event = function (event, element, isNative) {
+                if (!arguments.length) return
+                event = event || ((element.ownerDocument || element.document || element).parentWindow || win).event
+                this.originalEvent = event
+                this.isNative       = isNative
+                this.isBean         = true
+  
+                if (!event) return
+  
+                var type   = event.type
+                  , target = event.target || event.srcElement
+                  , i, l, p, props, fixer
+  
+                this.target = target && target.nodeType === 3 ? target.parentNode : target
+  
+                if (isNative) { // we only need basic augmentation on custom events, the rest expensive & pointless
+                  fixer = typeFixerMap[type]
+                  if (!fixer) { // haven't encountered this event type before, map a fixer function for it
+                    for (i = 0, l = typeFixers.length; i < l; i++) {
+                      if (typeFixers[i].reg.test(type)) { // guaranteed to match at least one, last is .*
+                        typeFixerMap[type] = fixer = typeFixers[i].fix
+                        break
+                      }
+                    }
+                  }
+  
+                  props = fixer(event, this, type)
+                  for (i = props.length; i--;) {
+                    if (!((p = props[i]) in this) && p in event) this[p] = event[p]
+                  }
+                }
+              }
+  
+          // preventDefault() and stopPropagation() are a consistent interface to those functions
+          // on the DOM, stop() is an alias for both of them together
+          Event.prototype.preventDefault = function () {
+            if (this.originalEvent.preventDefault) this.originalEvent.preventDefault()
+            else this.originalEvent.returnValue = false
+          }
+          Event.prototype.stopPropagation = function () {
+            if (this.originalEvent.stopPropagation) this.originalEvent.stopPropagation()
+            else this.originalEvent.cancelBubble = true
+          }
+          Event.prototype.stop = function () {
+            this.preventDefault()
+            this.stopPropagation()
+            this.stopped = true
+          }
+          // stopImmediatePropagation() has to be handled internally because we manage the event list for
+          // each element
+          // note that originalElement may be a Bean#Event object in some situations
+          Event.prototype.stopImmediatePropagation = function () {
+            if (this.originalEvent.stopImmediatePropagation) this.originalEvent.stopImmediatePropagation()
+            this.isImmediatePropagationStopped = function () { return true }
+          }
+          Event.prototype.isImmediatePropagationStopped = function () {
+            return this.originalEvent.isImmediatePropagationStopped && this.originalEvent.isImmediatePropagationStopped()
+          }
+          Event.prototype.clone = function (currentTarget) {
+            //TODO: this is ripe for optimisation, new events are *expensive*
+            // improving this will speed up delegated events
+            var ne = new Event(this, this.element, this.isNative)
+            ne.currentTarget = currentTarget
+            return ne
+          }
+  
+          return Event
+        }())
+  
+        // if we're in old IE we can't do onpropertychange on doc or win so we use doc.documentElement for both
+      , targetElement = function (element, isNative) {
+          return !W3C_MODEL && !isNative && (element === doc || element === win) ? root : element
         }
-      , '>': function (node, contestant) {
-          return node && node.parentNode == contestant.parentNode && node.parentNode
+  
+        /**
+          * Bean maintains an internal registry for event listeners. We don't touch elements, objects
+          * or functions to identify them, instead we store everything in the registry.
+          * Each event listener has a RegEntry object, we have one 'registry' for the whole instance.
+          */
+      , RegEntry = (function () {
+          // each handler is wrapped so we can handle delegation and custom events
+          var wrappedHandler = function (element, fn, condition, args) {
+              var call = function (event, eargs) {
+                    return fn.apply(element, args ? slice.call(eargs, event ? 0 : 1).concat(args) : eargs)
+                  }
+                , findTarget = function (event, eventElement) {
+                    return fn.__beanDel ? fn.__beanDel.ft(event.target, element) : eventElement
+                  }
+                , handler = condition
+                    ? function (event) {
+                        var target = findTarget(event, this) // deleated event
+                        if (condition.apply(target, arguments)) {
+                          if (event) event.currentTarget = target
+                          return call(event, arguments)
+                        }
+                      }
+                    : function (event) {
+                        if (fn.__beanDel) event = event.clone(findTarget(event)) // delegated event, fix the fix
+                        return call(event, arguments)
+                      }
+              handler.__beanDel = fn.__beanDel
+              return handler
+            }
+  
+          , RegEntry = function (element, type, handler, original, namespaces, args, root) {
+              var customType     = customEvents[type]
+                , isNative
+  
+              if (type == 'unload') {
+                // self clean-up
+                handler = once(removeListener, element, type, handler, original)
+              }
+  
+              if (customType) {
+                if (customType.condition) {
+                  handler = wrappedHandler(element, handler, customType.condition, args)
+                }
+                type = customType.base || type
+              }
+  
+              this.isNative      = isNative = nativeEvents[type] && !!element[eventSupport]
+              this.customType    = !W3C_MODEL && !isNative && type
+              this.element       = element
+              this.type          = type
+              this.original      = original
+              this.namespaces    = namespaces
+              this.eventType     = W3C_MODEL || isNative ? type : 'propertychange'
+              this.target        = targetElement(element, isNative)
+              this[eventSupport] = !!this.target[eventSupport]
+              this.root          = root
+              this.handler       = wrappedHandler(element, handler, null, args)
+            }
+  
+          // given a list of namespaces, is our entry in any of them?
+          RegEntry.prototype.inNamespaces = function (checkNamespaces) {
+            var i, j, c = 0
+            if (!checkNamespaces) return true
+            if (!this.namespaces) return false
+            for (i = checkNamespaces.length; i--;) {
+              for (j = this.namespaces.length; j--;) {
+                if (checkNamespaces[i] == this.namespaces[j]) c++
+              }
+            }
+            return checkNamespaces.length === c
+          }
+  
+          // match by element, original fn (opt), handler fn (opt)
+          RegEntry.prototype.matches = function (checkElement, checkOriginal, checkHandler) {
+            return this.element === checkElement &&
+              (!checkOriginal || this.original === checkOriginal) &&
+              (!checkHandler || this.handler === checkHandler)
+          }
+  
+          return RegEntry
+        }())
+  
+      , registry = (function () {
+          // our map stores arrays by event type, just because it's better than storing
+          // everything in a single array.
+          // uses '$' as a prefix for the keys for safety and 'r' as a special prefix for
+          // rootListeners so we can look them up fast
+          var map = {}
+  
+            // generic functional search of our registry for matching listeners,
+            // `fn` returns false to break out of the loop
+            , forAll = function (element, type, original, handler, root, fn) {
+                var pfx = root ? 'r' : '$'
+                if (!type || type == '*') {
+                  // search the whole registry
+                  for (var t in map) {
+                    if (t.charAt(0) == pfx) {
+                      forAll(element, t.substr(1), original, handler, root, fn)
+                    }
+                  }
+                } else {
+                  var i = 0, l, list = map[pfx + type], all = element == '*'
+                  if (!list) return
+                  for (l = list.length; i < l; i++) {
+                    if ((all || list[i].matches(element, original, handler)) && !fn(list[i], list, i, type)) return
+                  }
+                }
+              }
+  
+            , has = function (element, type, original, root) {
+                // we're not using forAll here simply because it's a bit slower and this
+                // needs to be fast
+                var i, list = map[(root ? 'r' : '$') + type]
+                if (list) {
+                  for (i = list.length; i--;) {
+                    if (!list[i].root && list[i].matches(element, original, null)) return true
+                  }
+                }
+                return false
+              }
+  
+            , get = function (element, type, original, root) {
+                var entries = []
+                forAll(element, type, original, null, root, function (entry) {
+                  return entries.push(entry)
+                })
+                return entries
+              }
+  
+            , put = function (entry) {
+                var has = !entry.root && !this.has(entry.element, entry.type, null, false)
+                  , key = (entry.root ? 'r' : '$') + entry.type
+                ;(map[key] || (map[key] = [])).push(entry)
+                return has
+              }
+  
+            , del = function (entry) {
+                forAll(entry.element, entry.type, null, entry.handler, entry.root, function (entry, list, i) {
+                  list.splice(i, 1)
+                  entry.removed = true
+                  if (list.length === 0) delete map[(entry.root ? 'r' : '$') + entry.type]
+                  return false
+                })
+              }
+  
+              // dump all entries, used for onunload
+            , entries = function () {
+                var t, entries = []
+                for (t in map) {
+                  if (t.charAt(0) == '$') entries = entries.concat(map[t])
+                }
+                return entries
+              }
+  
+          return { has: has, get: get, put: put, del: del, entries: entries }
+        }())
+  
+        // we need a selector engine for delegated events, use querySelectorAll if it exists
+        // but for older browsers we need Qwery, Sizzle or similar
+      , selectorEngine
+      , setSelectorEngine = function (e) {
+          if (!arguments.length) {
+            selectorEngine = doc.querySelectorAll
+              ? function (s, r) {
+                  return r.querySelectorAll(s)
+                }
+              : function () {
+                  throw new Error('Bean: No selector engine installed') // eeek
+                }
+          } else {
+            selectorEngine = e
+          }
         }
-      , '~': function (node) {
-          return node && node.previousSibling
+  
+        // we attach this listener to each DOM event that we need to listen to, only once
+        // per event type per DOM element
+      , rootListener = function (event, type) {
+          if (!W3C_MODEL && type && event && event.propertyName != '_on' + type) return
+  
+          var listeners = registry.get(this, type || event.type, null, false)
+            , l = listeners.length
+            , i = 0
+  
+          event = new Event(event, this, true)
+          if (type) event.type = type
+  
+          // iterate through all handlers registered for this type, calling them unless they have
+          // been removed by a previous handler or stopImmediatePropagation() has been called
+          for (; i < l && !event.isImmediatePropagationStopped(); i++) {
+            if (!listeners[i].removed) listeners[i].handler.call(this, event)
+          }
         }
-      , '+': function (node, contestant, p1, p2) {
-          if (!node) return false
-          return (p1 = previous(node)) && (p2 = previous(contestant)) && p1 == p2 && p1
+  
+        // add and remove listeners to DOM elements
+      , listener = W3C_MODEL
+          ? function (element, type, add) {
+              // new browsers
+              element[add ? addEvent : removeEvent](type, rootListener, false)
+            }
+          : function (element, type, add, custom) {
+              // IE8 and below, use attachEvent/detachEvent and we have to piggy-back propertychange events
+              // to simulate event bubbling etc.
+              var entry
+              if (add) {
+                registry.put(entry = new RegEntry(
+                    element
+                  , custom || type
+                  , function (event) { // handler
+                      rootListener.call(element, event, custom)
+                    }
+                  , rootListener
+                  , null
+                  , null
+                  , true // is root
+                ))
+                if (custom && element['_on' + custom] == null) element['_on' + custom] = 0
+                entry.target.attachEvent('on' + entry.eventType, entry.handler)
+              } else {
+                entry = registry.get(element, custom || type, rootListener, true)[0]
+                if (entry) {
+                  entry.target.detachEvent('on' + entry.eventType, entry.handler)
+                  registry.del(entry)
+                }
+              }
+            }
+  
+      , once = function (rm, element, type, fn, originalFn) {
+          // wrap the handler in a handler that does a remove as well
+          return function () {
+            fn.apply(this, arguments)
+            rm(element, type, originalFn)
+          }
         }
+  
+      , removeListener = function (element, orgType, handler, namespaces) {
+          var type     = orgType && orgType.replace(nameRegex, '')
+            , handlers = registry.get(element, type, null, false)
+            , removed  = {}
+            , i, l
+  
+          for (i = 0, l = handlers.length; i < l; i++) {
+            if ((!handler || handlers[i].original === handler) && handlers[i].inNamespaces(namespaces)) {
+              // TODO: this is problematic, we have a registry.get() and registry.del() that
+              // both do registry searches so we waste cycles doing this. Needs to be rolled into
+              // a single registry.forAll(fn) that removes while finding, but the catch is that
+              // we'll be splicing the arrays that we're iterating over. Needs extra tests to
+              // make sure we don't screw it up. @rvagg
+              registry.del(handlers[i])
+              if (!removed[handlers[i].eventType] && handlers[i][eventSupport])
+                removed[handlers[i].eventType] = { t: handlers[i].eventType, c: handlers[i].type }
+            }
+          }
+          // check each type/element for removed listeners and remove the rootListener where it's no longer needed
+          for (i in removed) {
+            if (!registry.has(element, removed[i].t, null, false)) {
+              // last listener of this type, remove the rootListener
+              listener(element, removed[i].t, false, removed[i].c)
+            }
+          }
+        }
+  
+        // set up a delegate helper using the given selector, wrap the handler function
+      , delegate = function (selector, fn) {
+          //TODO: findTarget (therefore $) is called twice, once for match and once for
+          // setting e.currentTarget, fix this so it's only needed once
+          var findTarget = function (target, root) {
+                var i, array = isString(selector) ? selectorEngine(selector, root) : selector
+                for (; target && target !== root; target = target.parentNode) {
+                  for (i = array.length; i--;) {
+                    if (array[i] === target) return target
+                  }
+                }
+              }
+            , handler = function (e) {
+                var match = findTarget(e.target, this)
+                if (match) fn.apply(match, arguments)
+              }
+  
+          // __beanDel isn't pleasant but it's a private function, not exposed outside of Bean
+          handler.__beanDel = {
+              ft       : findTarget // attach it here for customEvents to use too
+            , selector : selector
+          }
+          return handler
+        }
+  
+      , fireListener = W3C_MODEL ? function (isNative, type, element) {
+          // modern browsers, do a proper dispatchEvent()
+          var evt = doc.createEvent(isNative ? 'HTMLEvents' : 'UIEvents')
+          evt[isNative ? 'initEvent' : 'initUIEvent'](type, true, true, win, 1)
+          element.dispatchEvent(evt)
+        } : function (isNative, type, element) {
+          // old browser use onpropertychange, just increment a custom property to trigger the event
+          element = targetElement(element, isNative)
+          isNative ? element.fireEvent('on' + type, doc.createEventObject()) : element['_on' + type]++
+        }
+  
+        /**
+          * Public API: off(), on(), add(), (remove()), one(), fire(), clone()
+          */
+  
+        /**
+          * off(element[, eventType(s)[, handler ]])
+          */
+      , off = function (element, typeSpec, fn) {
+          var isTypeStr = isString(typeSpec)
+            , k, type, namespaces, i
+  
+          if (isTypeStr && typeSpec.indexOf(' ') > 0) {
+            // off(el, 't1 t2 t3', fn) or off(el, 't1 t2 t3')
+            typeSpec = str2arr(typeSpec)
+            for (i = typeSpec.length; i--;)
+              off(element, typeSpec[i], fn)
+            return element
+          }
+  
+          type = isTypeStr && typeSpec.replace(nameRegex, '')
+          if (type && customEvents[type]) type = customEvents[type].type
+  
+          if (!typeSpec || isTypeStr) {
+            // off(el) or off(el, t1.ns) or off(el, .ns) or off(el, .ns1.ns2.ns3)
+            if (namespaces = isTypeStr && typeSpec.replace(namespaceRegex, '')) namespaces = str2arr(namespaces, '.')
+            removeListener(element, type, fn, namespaces)
+          } else if (isFunction(typeSpec)) {
+            // off(el, fn)
+            removeListener(element, null, typeSpec)
+          } else {
+            // off(el, { t1: fn1, t2, fn2 })
+            for (k in typeSpec) {
+              if (typeSpec.hasOwnProperty(k)) off(element, k, typeSpec[k])
+            }
+          }
+  
+          return element
+        }
+  
+        /**
+          * on(element, eventType(s)[, selector], handler[, args ])
+          */
+      , on = function(element, events, selector, fn) {
+          var originalFn, type, types, i, args, entry, first
+  
+          //TODO: the undefined check means you can't pass an 'args' argument, fix this perhaps?
+          if (selector === undefined && typeof events == 'object') {
+            //TODO: this can't handle delegated events
+            for (type in events) {
+              if (events.hasOwnProperty(type)) {
+                on.call(this, element, type, events[type])
+              }
+            }
+            return
+          }
+  
+          if (!isFunction(selector)) {
+            // delegated event
+            originalFn = fn
+            args       = slice.call(arguments, 4)
+            fn         = delegate(selector, originalFn, selectorEngine)
+          } else {
+            args       = slice.call(arguments, 3)
+            fn         = originalFn = selector
+          }
+  
+          types = str2arr(events)
+  
+          // special case for one(), wrap in a self-removing handler
+          if (this === ONE) {
+            fn = once(off, element, events, fn, originalFn)
+          }
+  
+          for (i = types.length; i--;) {
+            // add new handler to the registry and check if it's the first for this element/type
+            first = registry.put(entry = new RegEntry(
+                element
+              , types[i].replace(nameRegex, '') // event type
+              , fn
+              , originalFn
+              , str2arr(types[i].replace(namespaceRegex, ''), '.') // namespaces
+              , args
+              , false // not root
+            ))
+            if (entry[eventSupport] && first) {
+              // first event of this type on this element, add root listener
+              listener(element, entry.eventType, true, entry.customType)
+            }
+          }
+  
+          return element
+        }
+  
+        /**
+          * add(element[, selector], eventType(s), handler[, args ])
+          *
+          * Deprecated: kept (for now) for backward-compatibility
+          */
+      , add = function (element, events, fn, delfn) {
+          return on.apply(
+              null
+            , !isString(fn)
+                ? slice.call(arguments)
+                : [ element, fn, events, delfn ].concat(arguments.length > 3 ? slice.call(arguments, 5) : [])
+          )
+        }
+  
+        /**
+          * one(element, eventType(s)[, selector], handler[, args ])
+          */
+      , one = function () {
+          return on.apply(ONE, arguments)
+        }
+  
+        /**
+          * fire(element, eventType(s)[, args ])
+          *
+          * The optional 'args' argument must be an array, if no 'args' argument is provided
+          * then we can use the browser's DOM event system, otherwise we trigger handlers manually
+          */
+      , fire = function (element, type, args) {
+          var types = str2arr(type)
+            , i, j, l, names, handlers
+  
+          for (i = types.length; i--;) {
+            type = types[i].replace(nameRegex, '')
+            if (names = types[i].replace(namespaceRegex, '')) names = str2arr(names, '.')
+            if (!names && !args && element[eventSupport]) {
+              fireListener(nativeEvents[type], type, element)
+            } else {
+              // non-native event, either because of a namespace, arguments or a non DOM element
+              // iterate over all listeners and manually 'fire'
+              handlers = registry.get(element, type, null, false)
+              args = [false].concat(args)
+              for (j = 0, l = handlers.length; j < l; j++) {
+                if (handlers[j].inNamespaces(names)) {
+                  handlers[j].handler.apply(element, args)
+                }
+              }
+            }
+          }
+          return element
+        }
+  
+        /**
+          * clone(dstElement, srcElement[, eventType ])
+          *
+          * TODO: perhaps for consistency we should allow the same flexibility in type specifiers?
+          */
+      , clone = function (element, from, type) {
+          var handlers = registry.get(from, type, null, false)
+            , l = handlers.length
+            , i = 0
+            , args, beanDel
+  
+          for (; i < l; i++) {
+            if (handlers[i].original) {
+              args = [ element, handlers[i].type ]
+              if (beanDel = handlers[i].handler.__beanDel) args.push(beanDel.selector)
+              args.push(handlers[i].original)
+              on.apply(null, args)
+            }
+          }
+          return element
+        }
+  
+      , bean = {
+            on                : on
+          , add               : add
+          , one               : one
+          , off               : off
+          , remove            : off
+          , clone             : clone
+          , fire              : fire
+          , setSelectorEngine : setSelectorEngine
+          , noConflict        : function () {
+              context[name] = old
+              return this
+            }
+        }
+  
+    // for IE, clean up on unload to avoid leaks
+    if (win.attachEvent) {
+      var cleanup = function () {
+        var i, entries = registry.entries()
+        for (i in entries) {
+          if (entries[i].type && entries[i].type !== 'unload') off(entries[i].element, entries[i].type)
+        }
+        win.detachEvent('onunload', cleanup)
+        win.CollectGarbage && win.CollectGarbage()
       }
-  
-    function cache() {
-      this.c = {}
-    }
-    cache.prototype = {
-      g: function (k) {
-        return this.c[k] || undefined
-      }
-    , s: function (k, v, r) {
-        v = r ? new RegExp(v) : v
-        return (this.c[k] = v)
-      }
+      win.attachEvent('onunload', cleanup)
     }
   
-    var classCache = new cache()
-      , cleanCache = new cache()
-      , attrCache = new cache()
-      , tokenCache = new cache()
+    // initialize selector engine to internal default (qSA or throw Error)
+    setSelectorEngine()
   
-    function classRegex(c) {
-      return classCache.g(c) || classCache.s(c, '(^|\\s+)' + c + '(\\s+|$)', 1)
-    }
+    return bean
+  }));
   
-    // not quite as fast as inline loops in older browsers so don't use liberally
-    function each(a, fn) {
-      var i = 0, l = a.length
-      for (; i < l; i++) fn(a[i])
-    }
+
+  provide("bean", module.exports);
+
+  !function ($) {
+    var b = require('bean')
   
-    function flatten(ar) {
-      for (var r = [], i = 0, l = ar.length; i < l; ++i) arrayLike(ar[i]) ? (r = r.concat(ar[i])) : (r[r.length] = ar[i])
-      return r
-    }
-  
-    function arrayify(ar) {
-      var i = 0, l = ar.length, r = []
-      for (; i < l; i++) r[i] = ar[i]
-      return r
-    }
-  
-    function previous(n) {
-      while (n = n.previousSibling) if (n[nodeType] == 1) break;
-      return n
-    }
-  
-    function q(query) {
-      return query.match(chunker)
-    }
-  
-    // called using `this` as element and arguments from regex group results.
-    // given => div.hello[title="world"]:foo('bar')
-    // div.hello[title="world"]:foo('bar'), div, .hello, [title="world"], title, =, world, :foo('bar'), foo, ('bar'), bar]
-    function interpret(whole, tag, idsAndClasses, wholeAttribute, attribute, qualifier, value, wholePseudo, pseudo, wholePseudoVal, pseudoVal) {
-      var i, m, k, o, classes
-      if (this[nodeType] !== 1) return false
-      if (tag && tag !== '*' && this[tagName] && this[tagName].toLowerCase() !== tag) return false
-      if (idsAndClasses && (m = idsAndClasses.match(id)) && m[1] !== this.id) return false
-      if (idsAndClasses && (classes = idsAndClasses.match(clas))) {
-        for (i = classes.length; i--;) if (!classRegex(classes[i].slice(1)).test(this.className)) return false
-      }
-      if (pseudo && qwery.pseudos[pseudo] && !qwery.pseudos[pseudo](this, pseudoVal)) return false
-      if (wholeAttribute && !value) { // select is just for existance of attrib
-        o = this.attributes
-        for (k in o) {
-          if (Object.prototype.hasOwnProperty.call(o, k) && (o[k].name || k) == attribute) {
+      , integrate = function (method, type, method2) {
+          var _args = type ? [type] : []
+          return function () {
+            for (var i = 0, l = this.length; i < l; i++) {
+              if (!arguments.length && method == 'on' && type) method = 'fire'
+              b[method].apply(this, [this[i]].concat(_args, Array.prototype.slice.call(arguments, 0)))
+            }
             return this
           }
         }
-      }
-      if (wholeAttribute && !checkAttr(qualifier, getAttr(this, attribute) || '', value)) {
-        // select is for attrib equality
-        return false
-      }
-      return this
-    }
   
-    function clean(s) {
-      return cleanCache.g(s) || cleanCache.s(s, s.replace(specialChars, '\\$1'))
-    }
+      , add   = integrate('add')
+      , on    = integrate('on')
+      , one   = integrate('one')
+      , off   = integrate('off')
+      , fire  = integrate('fire')
+      , clone = integrate('clone')
   
-    function checkAttr(qualify, actual, val) {
-      switch (qualify) {
-      case '=':
-        return actual == val
-      case '^=':
-        return actual.match(attrCache.g('^=' + val) || attrCache.s('^=' + val, '^' + clean(val), 1))
-      case '$=':
-        return actual.match(attrCache.g('$=' + val) || attrCache.s('$=' + val, clean(val) + '$', 1))
-      case '*=':
-        return actual.match(attrCache.g(val) || attrCache.s(val, clean(val), 1))
-      case '~=':
-        return actual.match(attrCache.g('~=' + val) || attrCache.s('~=' + val, '(?:^|\\s+)' + clean(val) + '(?:\\s+|$)', 1))
-      case '|=':
-        return actual.match(attrCache.g('|=' + val) || attrCache.s('|=' + val, '^' + clean(val) + '(-|$)', 1))
-      }
-      return 0
-    }
-  
-    // given a selector, first check for simple cases then collect all base candidate matches and filter
-    function _qwery(selector, _root) {
-      var r = [], ret = [], i, l, m, token, tag, els, intr, item, root = _root
-        , tokens = tokenCache.g(selector) || tokenCache.s(selector, selector.split(tokenizr))
-        , dividedTokens = selector.match(dividers)
-  
-      if (!tokens.length) return r
-  
-      token = (tokens = tokens.slice(0)).pop() // copy cached tokens, take the last one
-      if (tokens.length && (m = tokens[tokens.length - 1].match(idOnly))) root = byId(_root, m[1])
-      if (!root) return r
-  
-      intr = q(token)
-      // collect base candidates to filter
-      els = root !== _root && root[nodeType] !== 9 && dividedTokens && /^[+~]$/.test(dividedTokens[dividedTokens.length - 1]) ?
-        function (r) {
-          while (root = root.nextSibling) {
-            root[nodeType] == 1 && (intr[1] ? intr[1] == root[tagName].toLowerCase() : 1) && (r[r.length] = root)
+      , hover = function (enter, leave, i) { // i for internal
+          for (i = this.length; i--;) {
+            b.on.call(this, this[i], 'mouseenter', enter)
+            b.on.call(this, this[i], 'mouseleave', leave)
           }
-          return r
-        }([]) :
-        root[byTag](intr[1] || '*')
-      // filter elements according to the right-most part of the selector
-      for (i = 0, l = els.length; i < l; i++) {
-        if (item = interpret.apply(els[i], intr)) r[r.length] = item
-      }
-      if (!tokens.length) return r
-  
-      // filter further according to the rest of the selector (the left side)
-      each(r, function (e) { if (ancestorMatch(e, tokens, dividedTokens)) ret[ret.length] = e })
-      return ret
-    }
-  
-    // compare element to a selector
-    function is(el, selector, root) {
-      if (isNode(selector)) return el == selector
-      if (arrayLike(selector)) return !!~flatten(selector).indexOf(el) // if selector is an array, is el a member?
-  
-      var selectors = selector.split(','), tokens, dividedTokens
-      while (selector = selectors.pop()) {
-        tokens = tokenCache.g(selector) || tokenCache.s(selector, selector.split(tokenizr))
-        dividedTokens = selector.match(dividers)
-        tokens = tokens.slice(0) // copy array
-        if (interpret.apply(el, q(tokens.pop())) && (!tokens.length || ancestorMatch(el, tokens, dividedTokens, root))) {
-          return true
-        }
-      }
-      return false
-    }
-  
-    // given elements matching the right-most part of a selector, filter out any that don't match the rest
-    function ancestorMatch(el, tokens, dividedTokens, root) {
-      var cand
-      // recursively work backwards through the tokens and up the dom, covering all options
-      function crawl(e, i, p) {
-        while (p = walker[dividedTokens[i]](p, e)) {
-          if (isNode(p) && (interpret.apply(p, q(tokens[i])))) {
-            if (i) {
-              if (cand = crawl(p, i - 1, p)) return cand
-            } else return p
-          }
-        }
-      }
-      return (cand = crawl(el, tokens.length - 1, el)) && (!root || isAncestor(cand, root))
-    }
-  
-    function isNode(el, t) {
-      return el && typeof el === 'object' && (t = el[nodeType]) && (t == 1 || t == 9)
-    }
-  
-    function uniq(ar) {
-      var a = [], i, j;
-      o:
-      for (i = 0; i < ar.length; ++i) {
-        for (j = 0; j < a.length; ++j) if (a[j] == ar[i]) continue o
-        a[a.length] = ar[i]
-      }
-      return a
-    }
-  
-    function arrayLike(o) {
-      return (typeof o === 'object' && isFinite(o.length))
-    }
-  
-    function normalizeRoot(root) {
-      if (!root) return doc
-      if (typeof root == 'string') return qwery(root)[0]
-      if (!root[nodeType] && arrayLike(root)) return root[0]
-      return root
-    }
-  
-    function byId(root, id, el) {
-      // if doc, query on it, else query the parent doc or if a detached fragment rewrite the query and run on the fragment
-      return root[nodeType] === 9 ? root.getElementById(id) :
-        root.ownerDocument &&
-          (((el = root.ownerDocument.getElementById(id)) && isAncestor(el, root) && el) ||
-            (!isAncestor(root, root.ownerDocument) && select('[id="' + id + '"]', root)[0]))
-    }
-  
-    function qwery(selector, _root) {
-      var m, el, root = normalizeRoot(_root)
-  
-      // easy, fast cases that we can dispatch with simple DOM calls
-      if (!root || !selector) return []
-      if (selector === window || isNode(selector)) {
-        return !_root || (selector !== window && isNode(root) && isAncestor(selector, root)) ? [selector] : []
-      }
-      if (selector && arrayLike(selector)) return flatten(selector)
-      if (m = selector.match(easy)) {
-        if (m[1]) return (el = byId(root, m[1])) ? [el] : []
-        if (m[2]) return arrayify(root[byTag](m[2]))
-        if (hasByClass && m[3]) return arrayify(root[byClass](m[3]))
-      }
-  
-      return select(selector, root)
-    }
-  
-    // where the root is not document and a relationship selector is first we have to
-    // do some awkward adjustments to get it to work, even with qSA
-    function collectSelector(root, collector) {
-      return function (s) {
-        var oid, nid
-        if (splittable.test(s)) {
-          if (root[nodeType] !== 9) {
-            // make sure the el has an id, rewrite the query, set root to doc and run it
-            if (!(nid = oid = root.getAttribute('id'))) root.setAttribute('id', nid = '__qwerymeupscotty')
-            s = '[id="' + nid + '"]' + s // avoid byId and allow us to match context element
-            collector(root.parentNode || root, s, true)
-            oid || root.removeAttribute('id')
-          }
-          return;
-        }
-        s.length && collector(root, s, false)
-      }
-    }
-  
-    var isAncestor = 'compareDocumentPosition' in html ?
-      function (element, container) {
-        return (container.compareDocumentPosition(element) & 16) == 16
-      } : 'contains' in html ?
-      function (element, container) {
-        container = container[nodeType] === 9 || container == window ? html : container
-        return container !== element && container.contains(element)
-      } :
-      function (element, container) {
-        while (element = element.parentNode) if (element === container) return 1
-        return 0
-      }
-    , getAttr = function () {
-        // detect buggy IE src/href getAttribute() call
-        var e = doc.createElement('p')
-        return ((e.innerHTML = '<a href="#x">x</a>') && e.firstChild.getAttribute('href') != '#x') ?
-          function (e, a) {
-            return a === 'class' ? e.className : (a === 'href' || a === 'src') ?
-              e.getAttribute(a, 2) : e.getAttribute(a)
-          } :
-          function (e, a) { return e.getAttribute(a) }
-      }()
-    , hasByClass = !!doc[byClass]
-      // has native qSA support
-    , hasQSA = doc.querySelector && doc[qSA]
-      // use native qSA
-    , selectQSA = function (selector, root) {
-        var result = [], ss, e
-        try {
-          if (root[nodeType] === 9 || !splittable.test(selector)) {
-            // most work is done right here, defer to qSA
-            return arrayify(root[qSA](selector))
-          }
-          // special case where we need the services of `collectSelector()`
-          each(ss = selector.split(','), collectSelector(root, function (ctx, s) {
-            e = ctx[qSA](s)
-            if (e.length == 1) result[result.length] = e.item(0)
-            else if (e.length) result = result.concat(arrayify(e))
-          }))
-          return ss.length > 1 && result.length > 1 ? uniq(result) : result
-        } catch (ex) { }
-        return selectNonNative(selector, root)
-      }
-      // no native selector support
-    , selectNonNative = function (selector, root) {
-        var result = [], items, m, i, l, r, ss
-        selector = selector.replace(normalizr, '$1')
-        if (m = selector.match(tagAndOrClass)) {
-          r = classRegex(m[2])
-          items = root[byTag](m[1] || '*')
-          for (i = 0, l = items.length; i < l; i++) {
-            if (r.test(items[i].className)) result[result.length] = items[i]
-          }
-          return result
-        }
-        // more complex selector, get `_qwery()` to do the work for us
-        each(ss = selector.split(','), collectSelector(root, function (ctx, s, rewrite) {
-          r = _qwery(s, ctx)
-          for (i = 0, l = r.length; i < l; i++) {
-            if (ctx[nodeType] === 9 || rewrite || isAncestor(r[i], root)) result[result.length] = r[i]
-          }
-        }))
-        return ss.length > 1 && result.length > 1 ? uniq(result) : result
-      }
-    , configure = function (options) {
-        // configNativeQSA: use fully-internal selector or native qSA where present
-        if (typeof options[useNativeQSA] !== 'undefined')
-          select = !options[useNativeQSA] ? selectNonNative : hasQSA ? selectQSA : selectNonNative
-      }
-  
-    configure({ useNativeQSA: true })
-  
-    qwery.configure = configure
-    qwery.uniq = uniq
-    qwery.is = is
-    qwery.pseudos = {}
-  
-    return qwery
-  });
-  
-
-  provide("qwery", module.exports);
-
-  (function ($) {
-    var q = function () {
-      var r
-      try {
-        r = require('qwery')
-      } catch (ex) {
-        r = require('qwery-mobile')
-      } finally {
-        return r
-      }
-    }()
-  
-    $.pseudos = q.pseudos
-  
-    $._select = function (s, r) {
-      // detect if sibling module 'bonzo' is available at run-time
-      // rather than load-time since technically it's not a dependency and
-      // can be loaded in any order
-      // hence the lazy function re-definition
-      return ($._select = (function () {
-        var b
-        if (typeof $.create == 'function') return function (s, r) {
-          return /^\s*</.test(s) ? $.create(s, r) : q(s, r)
-        }
-        try {
-          b = require('bonzo')
-          return function (s, r) {
-            return /^\s*</.test(s) ? b.create(s, r) : q(s, r)
-          }
-        } catch (e) { }
-        return q
-      })())(s, r)
-    }
-  
-    $.ender({
-        find: function (s) {
-          var r = [], i, l, j, k, els
-          for (i = 0, l = this.length; i < l; i++) {
-            els = q(s, this[i])
-            for (j = 0, k = els.length; j < k; j++) r.push(els[j])
-          }
-          return $(q.uniq(r))
-        }
-      , and: function (s) {
-          var plus = $(s)
-          for (var i = this.length, j = 0, l = this.length + plus.length; i < l; i++, j++) {
-            this[i] = plus[j]
-          }
-          this.length += plus.length
           return this
         }
-      , is: function(s, r) {
-          var i, l
-          for (i = 0, l = this.length; i < l; i++) {
-            if (q.is(this[i], s, r)) {
-              return true
-            }
-          }
-          return false
-        }
-    }, true)
-  }(ender));
   
+      , methods = {
+            on             : on
+          , addListener    : on
+          , bind           : on
+          , listen         : on
+          , delegate       : add // jQuery compat, same arg order as add()
+  
+          , one            : one
+  
+          , off            : off
+          , unbind         : off
+          , unlisten       : off
+          , removeListener : off
+          , undelegate     : off
+  
+          , emit           : fire
+          , trigger        : fire
+  
+          , cloneEvents    : clone
+  
+          , hover          : hover
+        }
+  
+      , shortcuts =
+           ('blur change click dblclick error focus focusin focusout keydown keypress '
+          + 'keyup load mousedown mouseenter mouseleave mouseout mouseover mouseup '
+          + 'mousemove resize scroll select submit unload').split(' ')
+  
+    for (var i = shortcuts.length; i--;) {
+      methods[shortcuts[i]] = integrate('on', shortcuts[i])
+    }
+  
+    b.setSelectorEngine($)
+  
+    $.ender(methods, true)
+  }(ender);
 
 }());
 
@@ -660,9 +1379,9 @@
       , doc = win.document
       , html = doc.documentElement
       , parentNode = 'parentNode'
-      , query = null // used for setting a selector engine host
       , specialAttributes = /^(checked|value|selected|disabled)$/i
       , specialTags = /^(select|fieldset|table|tbody|tfoot|td|tr|colgroup)$/i // tags that we have trouble inserting *into*
+      , simpleScriptTagRe = /\s*<script +src=['"]([^'"]+)['"]>/
       , table = ['<table>', '</table>', 1]
       , td = ['<table><tbody><tr>', '</tr></tbody></table>', 3]
       , option = ['<select>', '</select>', 1]
@@ -712,6 +1431,7 @@
       , whitespaceRegex = /\s+/
       , toString = String.prototype.toString
       , unitless = { lineHeight: 1, zoom: 1, zIndex: 1, opacity: 1, boxFlex: 1, WebkitBoxFlex: 1, MozBoxFlex: 1 }
+      , query = doc.querySelectorAll && function (selector) { return doc.querySelectorAll(selector) }
       , trim = String.prototype.trim ?
           function (s) {
             return s.trim()
@@ -1684,6 +2404,13 @@
       return { x: win.pageXOffset || html.scrollLeft, y: win.pageYOffset || html.scrollTop }
     }
   
+    function createScriptFromHtml(html) {
+      var scriptEl = document.createElement('script')
+        , matches = html.match(simpleScriptTagRe)
+      scriptEl.src = matches[1]
+      return scriptEl
+    }
+  
     /**
      * @param {Array.<Element>|Element|Node|string} els
      * @return {Bonzo}
@@ -1708,7 +2435,8 @@
       // hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
       return typeof node == 'string' && node !== '' ?
         function () {
-          var tag = /^\s*<([^\s>]+)/.exec(node)
+          if (simpleScriptTagRe.test(node)) return [createScriptFromHtml(node)]
+          var tag = node.match(/^\s*<([^\s>]+)/)
             , el = doc.createElement('div')
             , els = []
             , p = tag ? tagMap[tag[1].toLowerCase()] : null
@@ -1920,810 +2648,515 @@
   var module = { exports: {} }, exports = module.exports;
 
   /*!
-    * Bean - copyright (c) Jacob Thornton 2011-2012
-    * https://github.com/fat/bean
-    * MIT license
+    * domready (c) Dustin Diaz 2012 - License MIT
     */
-  !(function (name, context, definition) {
-    if (typeof module != 'undefined' && module.exports) module.exports = definition(name, context);
-    else if (typeof define == 'function' && typeof define.amd  == 'object') define(definition);
-    else context[name] = definition(name, context);
-  }('bean', this, function (name, context) {
-    var win            = window
-      , old            = context[name]
-      , namespaceRegex = /[^\.]*(?=\..*)\.|.*/
-      , nameRegex      = /\..*/
-      , addEvent       = 'addEventListener'
-      , removeEvent    = 'removeEventListener'
-      , doc            = document || {}
-      , root           = doc.documentElement || {}
-      , W3C_MODEL      = root[addEvent]
-      , eventSupport   = W3C_MODEL ? addEvent : 'attachEvent'
-      , ONE            = {} // singleton for quick matching making add() do one()
-  
-      , slice          = Array.prototype.slice
-      , str2arr        = function (s, d) { return s.split(d || ' ') }
-      , isString       = function (o) { return typeof o == 'string' }
-      , isFunction     = function (o) { return typeof o == 'function' }
-  
-        // events that we consider to be 'native', anything not in this list will
-        // be treated as a custom event
-      , standardNativeEvents =
-          'click dblclick mouseup mousedown contextmenu '                  + // mouse buttons
-          'mousewheel mousemultiwheel DOMMouseScroll '                     + // mouse wheel
-          'mouseover mouseout mousemove selectstart selectend '            + // mouse movement
-          'keydown keypress keyup '                                        + // keyboard
-          'orientationchange '                                             + // mobile
-          'focus blur change reset select submit '                         + // form elements
-          'load unload beforeunload resize move DOMContentLoaded '         + // window
-          'readystatechange message '                                      + // window
-          'error abort scroll '                                              // misc
-        // element.fireEvent('onXYZ'... is not forgiving if we try to fire an event
-        // that doesn't actually exist, so make sure we only do these on newer browsers
-      , w3cNativeEvents =
-          'show '                                                          + // mouse buttons
-          'input invalid '                                                 + // form elements
-          'touchstart touchmove touchend touchcancel '                     + // touch
-          'gesturestart gesturechange gestureend '                         + // gesture
-          'textinput'                                                      + // TextEvent
-          'readystatechange pageshow pagehide popstate '                   + // window
-          'hashchange offline online '                                     + // window
-          'afterprint beforeprint '                                        + // printing
-          'dragstart dragenter dragover dragleave drag drop dragend '      + // dnd
-          'loadstart progress suspend emptied stalled loadmetadata '       + // media
-          'loadeddata canplay canplaythrough playing waiting seeking '     + // media
-          'seeked ended durationchange timeupdate play pause ratechange '  + // media
-          'volumechange cuechange '                                        + // media
-          'checking noupdate downloading cached updateready obsolete '       // appcache
-  
-        // convert to a hash for quick lookups
-      , nativeEvents = (function (hash, events, i) {
-          for (i = 0; i < events.length; i++) events[i] && (hash[events[i]] = 1)
-          return hash
-        }({}, str2arr(standardNativeEvents + (W3C_MODEL ? w3cNativeEvents : ''))))
-  
-        // custom events are events that we *fake*, they are not provided natively but
-        // we can use native events to generate them
-      , customEvents = (function () {
-          var isAncestor = 'compareDocumentPosition' in root
-                ? function (element, container) {
-                    return container.compareDocumentPosition && (container.compareDocumentPosition(element) & 16) === 16
-                  }
-                : 'contains' in root
-                  ? function (element, container) {
-                      container = container.nodeType === 9 || container === window ? root : container
-                      return container !== element && container.contains(element)
-                    }
-                  : function (element, container) {
-                      while (element = element.parentNode) if (element === container) return 1
-                      return 0
-                    }
-            , check = function (event) {
-                var related = event.relatedTarget
-                return !related
-                  ? related == null
-                  : (related !== this && related.prefix !== 'xul' && !/document/.test(this.toString())
-                      && !isAncestor(related, this))
-              }
-  
-          return {
-              mouseenter: { base: 'mouseover', condition: check }
-            , mouseleave: { base: 'mouseout', condition: check }
-            , mousewheel: { base: /Firefox/.test(navigator.userAgent) ? 'DOMMouseScroll' : 'mousewheel' }
-          }
-        }())
-  
-        // we provide a consistent Event object across browsers by taking the actual DOM
-        // event object and generating a new one from its properties.
-      , Event = (function () {
-              // a whitelist of properties (for different event types) tells us what to check for and copy
-          var commonProps  = str2arr('altKey attrChange attrName bubbles cancelable ctrlKey currentTarget ' +
-                'detail eventPhase getModifierState isTrusted metaKey relatedNode relatedTarget shiftKey '  +
-                'srcElement target timeStamp type view which propertyName')
-            , mouseProps   = commonProps.concat(str2arr('button buttons clientX clientY dataTransfer '      +
-                'fromElement offsetX offsetY pageX pageY screenX screenY toElement'))
-            , mouseWheelProps = mouseProps.concat(str2arr('wheelDelta wheelDeltaX wheelDeltaY wheelDeltaZ ' +
-                'axis')) // 'axis' is FF specific
-            , keyProps     = commonProps.concat(str2arr('char charCode key keyCode keyIdentifier '          +
-                'keyLocation location'))
-            , textProps    = commonProps.concat(str2arr('data'))
-            , touchProps   = commonProps.concat(str2arr('touches targetTouches changedTouches scale rotation'))
-            , messageProps = commonProps.concat(str2arr('data origin source'))
-            , stateProps   = commonProps.concat(str2arr('state'))
-            , overOutRegex = /over|out/
-              // some event types need special handling and some need special properties, do that all here
-            , typeFixers   = [
-                  { // key events
-                      reg: /key/i
-                    , fix: function (event, newEvent) {
-                        newEvent.keyCode = event.keyCode || event.which
-                        return keyProps
-                      }
-                  }
-                , { // mouse events
-                      reg: /click|mouse(?!(.*wheel|scroll))|menu|drag|drop/i
-                    , fix: function (event, newEvent, type) {
-                        newEvent.rightClick = event.which === 3 || event.button === 2
-                        newEvent.pos = { x: 0, y: 0 }
-                        if (event.pageX || event.pageY) {
-                          newEvent.clientX = event.pageX
-                          newEvent.clientY = event.pageY
-                        } else if (event.clientX || event.clientY) {
-                          newEvent.clientX = event.clientX + doc.body.scrollLeft + root.scrollLeft
-                          newEvent.clientY = event.clientY + doc.body.scrollTop + root.scrollTop
-                        }
-                        if (overOutRegex.test(type)) {
-                          newEvent.relatedTarget = event.relatedTarget
-                            || event[(type == 'mouseover' ? 'from' : 'to') + 'Element']
-                        }
-                        return mouseProps
-                      }
-                  }
-                , { // mouse wheel events
-                      reg: /mouse.*(wheel|scroll)/i
-                    , fix: function () { return mouseWheelProps }
-                  }
-                , { // TextEvent
-                      reg: /^text/i
-                    , fix: function () { return textProps }
-                  }
-                , { // touch and gesture events
-                      reg: /^touch|^gesture/i
-                    , fix: function () { return touchProps }
-                  }
-                , { // message events
-                      reg: /^message$/i
-                    , fix: function () { return messageProps }
-                  }
-                , { // popstate events
-                      reg: /^popstate$/i
-                    , fix: function () { return stateProps }
-                  }
-                , { // everything else
-                      reg: /.*/
-                    , fix: function () { return commonProps }
-                  }
-              ]
-            , typeFixerMap = {} // used to map event types to fixer functions (above), a basic cache mechanism
-  
-            , Event = function (event, element, isNative) {
-                if (!arguments.length) return
-                event = event || ((element.ownerDocument || element.document || element).parentWindow || win).event
-                this.originalEvent = event
-                this.isNative       = isNative
-                this.isBean         = true
-  
-                if (!event) return
-  
-                var type   = event.type
-                  , target = event.target || event.srcElement
-                  , i, l, p, props, fixer
-  
-                this.target = target && target.nodeType === 3 ? target.parentNode : target
-  
-                if (isNative) { // we only need basic augmentation on custom events, the rest expensive & pointless
-                  fixer = typeFixerMap[type]
-                  if (!fixer) { // haven't encountered this event type before, map a fixer function for it
-                    for (i = 0, l = typeFixers.length; i < l; i++) {
-                      if (typeFixers[i].reg.test(type)) { // guaranteed to match at least one, last is .*
-                        typeFixerMap[type] = fixer = typeFixers[i].fix
-                        break
-                      }
-                    }
-                  }
-  
-                  props = fixer(event, this, type)
-                  for (i = props.length; i--;) {
-                    if (!((p = props[i]) in this) && p in event) this[p] = event[p]
-                  }
-                }
-              }
-  
-          // preventDefault() and stopPropagation() are a consistent interface to those functions
-          // on the DOM, stop() is an alias for both of them together
-          Event.prototype.preventDefault = function () {
-            if (this.originalEvent.preventDefault) this.originalEvent.preventDefault()
-            else this.originalEvent.returnValue = false
-          }
-          Event.prototype.stopPropagation = function () {
-            if (this.originalEvent.stopPropagation) this.originalEvent.stopPropagation()
-            else this.originalEvent.cancelBubble = true
-          }
-          Event.prototype.stop = function () {
-            this.preventDefault()
-            this.stopPropagation()
-            this.stopped = true
-          }
-          // stopImmediatePropagation() has to be handled internally because we manage the event list for
-          // each element
-          // note that originalElement may be a Bean#Event object in some situations
-          Event.prototype.stopImmediatePropagation = function () {
-            if (this.originalEvent.stopImmediatePropagation) this.originalEvent.stopImmediatePropagation()
-            this.isImmediatePropagationStopped = function () { return true }
-          }
-          Event.prototype.isImmediatePropagationStopped = function () {
-            return this.originalEvent.isImmediatePropagationStopped && this.originalEvent.isImmediatePropagationStopped()
-          }
-          Event.prototype.clone = function (currentTarget) {
-            //TODO: this is ripe for optimisation, new events are *expensive*
-            // improving this will speed up delegated events
-            var ne = new Event(this, this.element, this.isNative)
-            ne.currentTarget = currentTarget
-            return ne
-          }
-  
-          return Event
-        }())
-  
-        // if we're in old IE we can't do onpropertychange on doc or win so we use doc.documentElement for both
-      , targetElement = function (element, isNative) {
-          return !W3C_MODEL && !isNative && (element === doc || element === win) ? root : element
-        }
-  
-        /**
-          * Bean maintains an internal registry for event listeners. We don't touch elements, objects
-          * or functions to identify them, instead we store everything in the registry.
-          * Each event listener has a RegEntry object, we have one 'registry' for the whole instance.
-          */
-      , RegEntry = (function () {
-          // each handler is wrapped so we can handle delegation and custom events
-          var wrappedHandler = function (element, fn, condition, args) {
-              var call = function (event, eargs) {
-                    return fn.apply(element, args ? slice.call(eargs, event ? 0 : 1).concat(args) : eargs)
-                  }
-                , findTarget = function (event, eventElement) {
-                    return fn.__beanDel ? fn.__beanDel.ft(event.target, element) : eventElement
-                  }
-                , handler = condition
-                    ? function (event) {
-                        var target = findTarget(event, this) // deleated event
-                        if (condition.apply(target, arguments)) {
-                          if (event) event.currentTarget = target
-                          return call(event, arguments)
-                        }
-                      }
-                    : function (event) {
-                        if (fn.__beanDel) event = event.clone(findTarget(event)) // delegated event, fix the fix
-                        return call(event, arguments)
-                      }
-              handler.__beanDel = fn.__beanDel
-              return handler
-            }
-  
-          , RegEntry = function (element, type, handler, original, namespaces, args, root) {
-              var customType     = customEvents[type]
-                , isNative
-  
-              if (type == 'unload') {
-                // self clean-up
-                handler = once(removeListener, element, type, handler, original)
-              }
-  
-              if (customType) {
-                if (customType.condition) {
-                  handler = wrappedHandler(element, handler, customType.condition, args)
-                }
-                type = customType.base || type
-              }
-  
-              this.isNative      = isNative = nativeEvents[type] && !!element[eventSupport]
-              this.customType    = !W3C_MODEL && !isNative && type
-              this.element       = element
-              this.type          = type
-              this.original      = original
-              this.namespaces    = namespaces
-              this.eventType     = W3C_MODEL || isNative ? type : 'propertychange'
-              this.target        = targetElement(element, isNative)
-              this[eventSupport] = !!this.target[eventSupport]
-              this.root          = root
-              this.handler       = wrappedHandler(element, handler, null, args)
-            }
-  
-          // given a list of namespaces, is our entry in any of them?
-          RegEntry.prototype.inNamespaces = function (checkNamespaces) {
-            var i, j, c = 0
-            if (!checkNamespaces) return true
-            if (!this.namespaces) return false
-            for (i = checkNamespaces.length; i--;) {
-              for (j = this.namespaces.length; j--;) {
-                if (checkNamespaces[i] == this.namespaces[j]) c++
-              }
-            }
-            return checkNamespaces.length === c
-          }
-  
-          // match by element, original fn (opt), handler fn (opt)
-          RegEntry.prototype.matches = function (checkElement, checkOriginal, checkHandler) {
-            return this.element === checkElement &&
-              (!checkOriginal || this.original === checkOriginal) &&
-              (!checkHandler || this.handler === checkHandler)
-          }
-  
-          return RegEntry
-        }())
-  
-      , registry = (function () {
-          // our map stores arrays by event type, just because it's better than storing
-          // everything in a single array.
-          // uses '$' as a prefix for the keys for safety and 'r' as a special prefix for
-          // rootListeners so we can look them up fast
-          var map = {}
-  
-            // generic functional search of our registry for matching listeners,
-            // `fn` returns false to break out of the loop
-            , forAll = function (element, type, original, handler, root, fn) {
-                var pfx = root ? 'r' : '$'
-                if (!type || type == '*') {
-                  // search the whole registry
-                  for (var t in map) {
-                    if (t.charAt(0) == pfx) {
-                      forAll(element, t.substr(1), original, handler, root, fn)
-                    }
-                  }
-                } else {
-                  var i = 0, l, list = map[pfx + type], all = element == '*'
-                  if (!list) return
-                  for (l = list.length; i < l; i++) {
-                    if ((all || list[i].matches(element, original, handler)) && !fn(list[i], list, i, type)) return
-                  }
-                }
-              }
-  
-            , has = function (element, type, original, root) {
-                // we're not using forAll here simply because it's a bit slower and this
-                // needs to be fast
-                var i, list = map[(root ? 'r' : '$') + type]
-                if (list) {
-                  for (i = list.length; i--;) {
-                    if (!list[i].root && list[i].matches(element, original, null)) return true
-                  }
-                }
-                return false
-              }
-  
-            , get = function (element, type, original, root) {
-                var entries = []
-                forAll(element, type, original, null, root, function (entry) {
-                  return entries.push(entry)
-                })
-                return entries
-              }
-  
-            , put = function (entry) {
-                var has = !entry.root && !this.has(entry.element, entry.type, null, false)
-                  , key = (entry.root ? 'r' : '$') + entry.type
-                ;(map[key] || (map[key] = [])).push(entry)
-                return has
-              }
-  
-            , del = function (entry) {
-                forAll(entry.element, entry.type, null, entry.handler, entry.root, function (entry, list, i) {
-                  list.splice(i, 1)
-                  entry.removed = true
-                  if (list.length === 0) delete map[(entry.root ? 'r' : '$') + entry.type]
-                  return false
-                })
-              }
-  
-              // dump all entries, used for onunload
-            , entries = function () {
-                var t, entries = []
-                for (t in map) {
-                  if (t.charAt(0) == '$') entries = entries.concat(map[t])
-                }
-                return entries
-              }
-  
-          return { has: has, get: get, put: put, del: del, entries: entries }
-        }())
-  
-        // we need a selector engine for delegated events, use querySelectorAll if it exists
-        // but for older browsers we need Qwery, Sizzle or similar
-      , selectorEngine
-      , setSelectorEngine = function (e) {
-          if (!arguments.length) {
-            selectorEngine = doc.querySelectorAll
-              ? function (s, r) {
-                  return r.querySelectorAll(s)
-                }
-              : function () {
-                  throw new Error('Bean: No selector engine installed') // eeek
-                }
-          } else {
-            selectorEngine = e
-          }
-        }
-  
-        // we attach this listener to each DOM event that we need to listen to, only once
-        // per event type per DOM element
-      , rootListener = function (event, type) {
-          if (!W3C_MODEL && type && event && event.propertyName != '_on' + type) return
-  
-          var listeners = registry.get(this, type || event.type, null, false)
-            , l = listeners.length
-            , i = 0
-  
-          event = new Event(event, this, true)
-          if (type) event.type = type
-  
-          // iterate through all handlers registered for this type, calling them unless they have
-          // been removed by a previous handler or stopImmediatePropagation() has been called
-          for (; i < l && !event.isImmediatePropagationStopped(); i++) {
-            if (!listeners[i].removed) listeners[i].handler.call(this, event)
-          }
-        }
-  
-        // add and remove listeners to DOM elements
-      , listener = W3C_MODEL
-          ? function (element, type, add) {
-              // new browsers
-              element[add ? addEvent : removeEvent](type, rootListener, false)
-            }
-          : function (element, type, add, custom) {
-              // IE8 and below, use attachEvent/detachEvent and we have to piggy-back propertychange events
-              // to simulate event bubbling etc.
-              var entry
-              if (add) {
-                registry.put(entry = new RegEntry(
-                    element
-                  , custom || type
-                  , function (event) { // handler
-                      rootListener.call(element, event, custom)
-                    }
-                  , rootListener
-                  , null
-                  , null
-                  , true // is root
-                ))
-                if (custom && element['_on' + custom] == null) element['_on' + custom] = 0
-                entry.target.attachEvent('on' + entry.eventType, entry.handler)
-              } else {
-                entry = registry.get(element, custom || type, rootListener, true)[0]
-                if (entry) {
-                  entry.target.detachEvent('on' + entry.eventType, entry.handler)
-                  registry.del(entry)
-                }
-              }
-            }
-  
-      , once = function (rm, element, type, fn, originalFn) {
-          // wrap the handler in a handler that does a remove as well
-          return function () {
-            fn.apply(this, arguments)
-            rm(element, type, originalFn)
-          }
-        }
-  
-      , removeListener = function (element, orgType, handler, namespaces) {
-          var type     = orgType && orgType.replace(nameRegex, '')
-            , handlers = registry.get(element, type, null, false)
-            , removed  = {}
-            , i, l
-  
-          for (i = 0, l = handlers.length; i < l; i++) {
-            if ((!handler || handlers[i].original === handler) && handlers[i].inNamespaces(namespaces)) {
-              // TODO: this is problematic, we have a registry.get() and registry.del() that
-              // both do registry searches so we waste cycles doing this. Needs to be rolled into
-              // a single registry.forAll(fn) that removes while finding, but the catch is that
-              // we'll be splicing the arrays that we're iterating over. Needs extra tests to
-              // make sure we don't screw it up. @rvagg
-              registry.del(handlers[i])
-              if (!removed[handlers[i].eventType] && handlers[i][eventSupport])
-                removed[handlers[i].eventType] = { t: handlers[i].eventType, c: handlers[i].type }
-            }
-          }
-          // check each type/element for removed listeners and remove the rootListener where it's no longer needed
-          for (i in removed) {
-            if (!registry.has(element, removed[i].t, null, false)) {
-              // last listener of this type, remove the rootListener
-              listener(element, removed[i].t, false, removed[i].c)
-            }
-          }
-        }
-  
-        // set up a delegate helper using the given selector, wrap the handler function
-      , delegate = function (selector, fn) {
-          //TODO: findTarget (therefore $) is called twice, once for match and once for
-          // setting e.currentTarget, fix this so it's only needed once
-          var findTarget = function (target, root) {
-                var i, array = isString(selector) ? selectorEngine(selector, root) : selector
-                for (; target && target !== root; target = target.parentNode) {
-                  for (i = array.length; i--;) {
-                    if (array[i] === target) return target
-                  }
-                }
-              }
-            , handler = function (e) {
-                var match = findTarget(e.target, this)
-                if (match) fn.apply(match, arguments)
-              }
-  
-          // __beanDel isn't pleasant but it's a private function, not exposed outside of Bean
-          handler.__beanDel = {
-              ft       : findTarget // attach it here for customEvents to use too
-            , selector : selector
-          }
-          return handler
-        }
-  
-      , fireListener = W3C_MODEL ? function (isNative, type, element) {
-          // modern browsers, do a proper dispatchEvent()
-          var evt = doc.createEvent(isNative ? 'HTMLEvents' : 'UIEvents')
-          evt[isNative ? 'initEvent' : 'initUIEvent'](type, true, true, win, 1)
-          element.dispatchEvent(evt)
-        } : function (isNative, type, element) {
-          // old browser use onpropertychange, just increment a custom property to trigger the event
-          element = targetElement(element, isNative)
-          isNative ? element.fireEvent('on' + type, doc.createEventObject()) : element['_on' + type]++
-        }
-  
-        /**
-          * Public API: off(), on(), add(), (remove()), one(), fire(), clone()
-          */
-  
-        /**
-          * off(element[, eventType(s)[, handler ]])
-          */
-      , off = function (element, typeSpec, fn) {
-          var isTypeStr = isString(typeSpec)
-            , k, type, namespaces, i
-  
-          if (isTypeStr && typeSpec.indexOf(' ') > 0) {
-            // off(el, 't1 t2 t3', fn) or off(el, 't1 t2 t3')
-            typeSpec = str2arr(typeSpec)
-            for (i = typeSpec.length; i--;)
-              off(element, typeSpec[i], fn)
-            return element
-          }
-  
-          type = isTypeStr && typeSpec.replace(nameRegex, '')
-          if (type && customEvents[type]) type = customEvents[type].type
-  
-          if (!typeSpec || isTypeStr) {
-            // off(el) or off(el, t1.ns) or off(el, .ns) or off(el, .ns1.ns2.ns3)
-            if (namespaces = isTypeStr && typeSpec.replace(namespaceRegex, '')) namespaces = str2arr(namespaces, '.')
-            removeListener(element, type, fn, namespaces)
-          } else if (isFunction(typeSpec)) {
-            // off(el, fn)
-            removeListener(element, null, typeSpec)
-          } else {
-            // off(el, { t1: fn1, t2, fn2 })
-            for (k in typeSpec) {
-              if (typeSpec.hasOwnProperty(k)) off(element, k, typeSpec[k])
-            }
-          }
-  
-          return element
-        }
-  
-        /**
-          * on(element, eventType(s)[, selector], handler[, args ])
-          */
-      , on = function(element, events, selector, fn) {
-          var originalFn, type, types, i, args, entry, first
-  
-          //TODO: the undefined check means you can't pass an 'args' argument, fix this perhaps?
-          if (selector === undefined && typeof events == 'object') {
-            //TODO: this can't handle delegated events
-            for (type in events) {
-              if (events.hasOwnProperty(type)) {
-                on.call(this, element, type, events[type])
-              }
-            }
-            return
-          }
-  
-          if (!isFunction(selector)) {
-            // delegated event
-            originalFn = fn
-            args       = slice.call(arguments, 4)
-            fn         = delegate(selector, originalFn, selectorEngine)
-          } else {
-            args       = slice.call(arguments, 3)
-            fn         = originalFn = selector
-          }
-  
-          types = str2arr(events)
-  
-          // special case for one(), wrap in a self-removing handler
-          if (this === ONE) {
-            fn = once(off, element, events, fn, originalFn)
-          }
-  
-          for (i = types.length; i--;) {
-            // add new handler to the registry and check if it's the first for this element/type
-            first = registry.put(entry = new RegEntry(
-                element
-              , types[i].replace(nameRegex, '') // event type
-              , fn
-              , originalFn
-              , str2arr(types[i].replace(namespaceRegex, ''), '.') // namespaces
-              , args
-              , false // not root
-            ))
-            if (entry[eventSupport] && first) {
-              // first event of this type on this element, add root listener
-              listener(element, entry.eventType, true, entry.customType)
-            }
-          }
-  
-          return element
-        }
-  
-        /**
-          * add(element[, selector], eventType(s), handler[, args ])
-          *
-          * Deprecated: kept (for now) for backward-compatibility
-          */
-      , add = function (element, events, fn, delfn) {
-          return on.apply(
-              null
-            , !isString(fn)
-                ? slice.call(arguments)
-                : [ element, fn, events, delfn ].concat(arguments.length > 3 ? slice.call(arguments, 5) : [])
-          )
-        }
-  
-        /**
-          * one(element, eventType(s)[, selector], handler[, args ])
-          */
-      , one = function () {
-          return on.apply(ONE, arguments)
-        }
-  
-        /**
-          * fire(element, eventType(s)[, args ])
-          *
-          * The optional 'args' argument must be an array, if no 'args' argument is provided
-          * then we can use the browser's DOM event system, otherwise we trigger handlers manually
-          */
-      , fire = function (element, type, args) {
-          var types = str2arr(type)
-            , i, j, l, names, handlers
-  
-          for (i = types.length; i--;) {
-            type = types[i].replace(nameRegex, '')
-            if (names = types[i].replace(namespaceRegex, '')) names = str2arr(names, '.')
-            if (!names && !args && element[eventSupport]) {
-              fireListener(nativeEvents[type], type, element)
-            } else {
-              // non-native event, either because of a namespace, arguments or a non DOM element
-              // iterate over all listeners and manually 'fire'
-              handlers = registry.get(element, type, null, false)
-              args = [false].concat(args)
-              for (j = 0, l = handlers.length; j < l; j++) {
-                if (handlers[j].inNamespaces(names)) {
-                  handlers[j].handler.apply(element, args)
-                }
-              }
-            }
-          }
-          return element
-        }
-  
-        /**
-          * clone(dstElement, srcElement[, eventType ])
-          *
-          * TODO: perhaps for consistency we should allow the same flexibility in type specifiers?
-          */
-      , clone = function (element, from, type) {
-          var handlers = registry.get(from, type, null, false)
-            , l = handlers.length
-            , i = 0
-            , args, beanDel
-  
-          for (; i < l; i++) {
-            if (handlers[i].original) {
-              args = [ element, handlers[i].type ]
-              if (beanDel = handlers[i].handler.__beanDel) args.push(beanDel.selector)
-              args.push(handlers[i].original)
-              on.apply(null, args)
-            }
-          }
-          return element
-        }
-  
-      , bean = {
-            on                : on
-          , add               : add
-          , one               : one
-          , off               : off
-          , remove            : off
-          , clone             : clone
-          , fire              : fire
-          , setSelectorEngine : setSelectorEngine
-          , noConflict        : function () {
-              context[name] = old
-              return this
-            }
-        }
-  
-    // for IE, clean up on unload to avoid leaks
-    if (win.attachEvent) {
-      var cleanup = function () {
-        var i, entries = registry.entries()
-        for (i in entries) {
-          if (entries[i].type && entries[i].type !== 'unload') off(entries[i].element, entries[i].type)
-        }
-        win.detachEvent('onunload', cleanup)
-        win.CollectGarbage && win.CollectGarbage()
-      }
-      win.attachEvent('onunload', cleanup)
+  !function (name, definition) {
+    if (typeof module != 'undefined') module.exports = definition()
+    else if (typeof define == 'function' && typeof define.amd == 'object') define(definition)
+    else this[name] = definition()
+  }('domready', function (ready) {
+  
+    var fns = [], fn, f = false
+      , doc = document
+      , testEl = doc.documentElement
+      , hack = testEl.doScroll
+      , domContentLoaded = 'DOMContentLoaded'
+      , addEventListener = 'addEventListener'
+      , onreadystatechange = 'onreadystatechange'
+      , readyState = 'readyState'
+      , loaded = /^loade|c/.test(doc[readyState])
+  
+    function flush(f) {
+      loaded = 1
+      while (f = fns.shift()) f()
     }
   
-    // initialize selector engine to internal default (qSA or throw Error)
-    setSelectorEngine()
+    doc[addEventListener] && doc[addEventListener](domContentLoaded, fn = function () {
+      doc.removeEventListener(domContentLoaded, fn, f)
+      flush()
+    }, f)
   
-    return bean
-  }));
   
+    hack && doc.attachEvent(onreadystatechange, fn = function () {
+      if (/^c/.test(doc[readyState])) {
+        doc.detachEvent(onreadystatechange, fn)
+        flush()
+      }
+    })
+  
+    return (ready = hack ?
+      function (fn) {
+        self != top ?
+          loaded ? fn() : fns.push(fn) :
+          function () {
+            try {
+              testEl.doScroll('left')
+            } catch (e) {
+              return setTimeout(function() { ready(fn) }, 50)
+            }
+            fn()
+          }()
+      } :
+      function (fn) {
+        loaded ? fn() : fns.push(fn)
+      })
+  })
 
-  provide("bean", module.exports);
+  provide("domready", module.exports);
 
   !function ($) {
-    var b = require('bean')
-  
-      , integrate = function (method, type, method2) {
-          var _args = type ? [type] : []
-          return function () {
-            for (var i = 0, l = this.length; i < l; i++) {
-              if (!arguments.length && method == 'on' && type) method = 'fire'
-              b[method].apply(this, [this[i]].concat(_args, Array.prototype.slice.call(arguments, 0)))
-            }
-            return this
-          }
-        }
-  
-      , add   = integrate('add')
-      , on    = integrate('on')
-      , one   = integrate('one')
-      , off   = integrate('off')
-      , fire  = integrate('fire')
-      , clone = integrate('clone')
-  
-      , hover = function (enter, leave, i) { // i for internal
-          for (i = this.length; i--;) {
-            b.on.call(this, this[i], 'mouseenter', enter)
-            b.on.call(this, this[i], 'mouseleave', leave)
-          }
-          return this
-        }
-  
-      , methods = {
-            on             : on
-          , addListener    : on
-          , bind           : on
-          , listen         : on
-          , delegate       : add // jQuery compat, same arg order as add()
-  
-          , one            : one
-  
-          , off            : off
-          , unbind         : off
-          , unlisten       : off
-          , removeListener : off
-          , undelegate     : off
-  
-          , emit           : fire
-          , trigger        : fire
-  
-          , cloneEvents    : clone
-  
-          , hover          : hover
-        }
-  
-      , shortcuts =
-           ('blur change click dblclick error focus focusin focusout keydown keypress '
-          + 'keyup load mousedown mouseenter mouseleave mouseout mouseover mouseup '
-          + 'mousemove resize scroll select submit unload').split(' ')
-  
-    for (var i = shortcuts.length; i--;) {
-      methods[shortcuts[i]] = integrate('on', shortcuts[i])
-    }
-  
-    b.setSelectorEngine($)
-  
-    $.ender(methods, true)
+    var ready = require('domready')
+    $.ender({domReady: ready})
+    $.ender({
+      ready: function (f) {
+        ready(f)
+        return this
+      }
+    }, true)
   }(ender);
 
 }());
+
+(function () {
+
+  var module = { exports: {} }, exports = module.exports;
+
+  /*!
+    * @preserve Qwery - A Blazing Fast query selector engine
+    * https://github.com/ded/qwery
+    * copyright Dustin Diaz 2012
+    * MIT License
+    */
+  
+  (function (name, context, definition) {
+    if (typeof module != 'undefined' && module.exports) module.exports = definition()
+    else if (typeof context['define'] == 'function' && context['define']['amd']) define(definition)
+    else context[name] = definition()
+  })('qwery', this, function () {
+    var doc = document
+      , html = doc.documentElement
+      , byClass = 'getElementsByClassName'
+      , byTag = 'getElementsByTagName'
+      , qSA = 'querySelectorAll'
+      , useNativeQSA = 'useNativeQSA'
+      , tagName = 'tagName'
+      , nodeType = 'nodeType'
+      , select // main select() method, assign later
+  
+      , id = /#([\w\-]+)/
+      , clas = /\.[\w\-]+/g
+      , idOnly = /^#([\w\-]+)$/
+      , classOnly = /^\.([\w\-]+)$/
+      , tagOnly = /^([\w\-]+)$/
+      , tagAndOrClass = /^([\w]+)?\.([\w\-]+)$/
+      , splittable = /(^|,)\s*[>~+]/
+      , normalizr = /^\s+|\s*([,\s\+\~>]|$)\s*/g
+      , splitters = /[\s\>\+\~]/
+      , splittersMore = /(?![\s\w\-\/\?\&\=\:\.\(\)\!,@#%<>\{\}\$\*\^'"]*\]|[\s\w\+\-]*\))/
+      , specialChars = /([.*+?\^=!:${}()|\[\]\/\\])/g
+      , simple = /^(\*|[a-z0-9]+)?(?:([\.\#]+[\w\-\.#]+)?)/
+      , attr = /\[([\w\-]+)(?:([\|\^\$\*\~]?\=)['"]?([ \w\-\/\?\&\=\:\.\(\)\!,@#%<>\{\}\$\*\^]+)["']?)?\]/
+      , pseudo = /:([\w\-]+)(\(['"]?([^()]+)['"]?\))?/
+      , easy = new RegExp(idOnly.source + '|' + tagOnly.source + '|' + classOnly.source)
+      , dividers = new RegExp('(' + splitters.source + ')' + splittersMore.source, 'g')
+      , tokenizr = new RegExp(splitters.source + splittersMore.source)
+      , chunker = new RegExp(simple.source + '(' + attr.source + ')?' + '(' + pseudo.source + ')?')
+  
+    var walker = {
+        ' ': function (node) {
+          return node && node !== html && node.parentNode
+        }
+      , '>': function (node, contestant) {
+          return node && node.parentNode == contestant.parentNode && node.parentNode
+        }
+      , '~': function (node) {
+          return node && node.previousSibling
+        }
+      , '+': function (node, contestant, p1, p2) {
+          if (!node) return false
+          return (p1 = previous(node)) && (p2 = previous(contestant)) && p1 == p2 && p1
+        }
+      }
+  
+    function cache() {
+      this.c = {}
+    }
+    cache.prototype = {
+      g: function (k) {
+        return this.c[k] || undefined
+      }
+    , s: function (k, v, r) {
+        v = r ? new RegExp(v) : v
+        return (this.c[k] = v)
+      }
+    }
+  
+    var classCache = new cache()
+      , cleanCache = new cache()
+      , attrCache = new cache()
+      , tokenCache = new cache()
+  
+    function classRegex(c) {
+      return classCache.g(c) || classCache.s(c, '(^|\\s+)' + c + '(\\s+|$)', 1)
+    }
+  
+    // not quite as fast as inline loops in older browsers so don't use liberally
+    function each(a, fn) {
+      var i = 0, l = a.length
+      for (; i < l; i++) fn(a[i])
+    }
+  
+    function flatten(ar) {
+      for (var r = [], i = 0, l = ar.length; i < l; ++i) arrayLike(ar[i]) ? (r = r.concat(ar[i])) : (r[r.length] = ar[i])
+      return r
+    }
+  
+    function arrayify(ar) {
+      var i = 0, l = ar.length, r = []
+      for (; i < l; i++) r[i] = ar[i]
+      return r
+    }
+  
+    function previous(n) {
+      while (n = n.previousSibling) if (n[nodeType] == 1) break;
+      return n
+    }
+  
+    function q(query) {
+      return query.match(chunker)
+    }
+  
+    // called using `this` as element and arguments from regex group results.
+    // given => div.hello[title="world"]:foo('bar')
+    // div.hello[title="world"]:foo('bar'), div, .hello, [title="world"], title, =, world, :foo('bar'), foo, ('bar'), bar]
+    function interpret(whole, tag, idsAndClasses, wholeAttribute, attribute, qualifier, value, wholePseudo, pseudo, wholePseudoVal, pseudoVal) {
+      var i, m, k, o, classes
+      if (this[nodeType] !== 1) return false
+      if (tag && tag !== '*' && this[tagName] && this[tagName].toLowerCase() !== tag) return false
+      if (idsAndClasses && (m = idsAndClasses.match(id)) && m[1] !== this.id) return false
+      if (idsAndClasses && (classes = idsAndClasses.match(clas))) {
+        for (i = classes.length; i--;) if (!classRegex(classes[i].slice(1)).test(this.className)) return false
+      }
+      if (pseudo && qwery.pseudos[pseudo] && !qwery.pseudos[pseudo](this, pseudoVal)) return false
+      if (wholeAttribute && !value) { // select is just for existance of attrib
+        o = this.attributes
+        for (k in o) {
+          if (Object.prototype.hasOwnProperty.call(o, k) && (o[k].name || k) == attribute) {
+            return this
+          }
+        }
+      }
+      if (wholeAttribute && !checkAttr(qualifier, getAttr(this, attribute) || '', value)) {
+        // select is for attrib equality
+        return false
+      }
+      return this
+    }
+  
+    function clean(s) {
+      return cleanCache.g(s) || cleanCache.s(s, s.replace(specialChars, '\\$1'))
+    }
+  
+    function checkAttr(qualify, actual, val) {
+      switch (qualify) {
+      case '=':
+        return actual == val
+      case '^=':
+        return actual.match(attrCache.g('^=' + val) || attrCache.s('^=' + val, '^' + clean(val), 1))
+      case '$=':
+        return actual.match(attrCache.g('$=' + val) || attrCache.s('$=' + val, clean(val) + '$', 1))
+      case '*=':
+        return actual.match(attrCache.g(val) || attrCache.s(val, clean(val), 1))
+      case '~=':
+        return actual.match(attrCache.g('~=' + val) || attrCache.s('~=' + val, '(?:^|\\s+)' + clean(val) + '(?:\\s+|$)', 1))
+      case '|=':
+        return actual.match(attrCache.g('|=' + val) || attrCache.s('|=' + val, '^' + clean(val) + '(-|$)', 1))
+      }
+      return 0
+    }
+  
+    // given a selector, first check for simple cases then collect all base candidate matches and filter
+    function _qwery(selector, _root) {
+      var r = [], ret = [], i, l, m, token, tag, els, intr, item, root = _root
+        , tokens = tokenCache.g(selector) || tokenCache.s(selector, selector.split(tokenizr))
+        , dividedTokens = selector.match(dividers)
+  
+      if (!tokens.length) return r
+  
+      token = (tokens = tokens.slice(0)).pop() // copy cached tokens, take the last one
+      if (tokens.length && (m = tokens[tokens.length - 1].match(idOnly))) root = byId(_root, m[1])
+      if (!root) return r
+  
+      intr = q(token)
+      // collect base candidates to filter
+      els = root !== _root && root[nodeType] !== 9 && dividedTokens && /^[+~]$/.test(dividedTokens[dividedTokens.length - 1]) ?
+        function (r) {
+          while (root = root.nextSibling) {
+            root[nodeType] == 1 && (intr[1] ? intr[1] == root[tagName].toLowerCase() : 1) && (r[r.length] = root)
+          }
+          return r
+        }([]) :
+        root[byTag](intr[1] || '*')
+      // filter elements according to the right-most part of the selector
+      for (i = 0, l = els.length; i < l; i++) {
+        if (item = interpret.apply(els[i], intr)) r[r.length] = item
+      }
+      if (!tokens.length) return r
+  
+      // filter further according to the rest of the selector (the left side)
+      each(r, function (e) { if (ancestorMatch(e, tokens, dividedTokens)) ret[ret.length] = e })
+      return ret
+    }
+  
+    // compare element to a selector
+    function is(el, selector, root) {
+      if (isNode(selector)) return el == selector
+      if (arrayLike(selector)) return !!~flatten(selector).indexOf(el) // if selector is an array, is el a member?
+  
+      var selectors = selector.split(','), tokens, dividedTokens
+      while (selector = selectors.pop()) {
+        tokens = tokenCache.g(selector) || tokenCache.s(selector, selector.split(tokenizr))
+        dividedTokens = selector.match(dividers)
+        tokens = tokens.slice(0) // copy array
+        if (interpret.apply(el, q(tokens.pop())) && (!tokens.length || ancestorMatch(el, tokens, dividedTokens, root))) {
+          return true
+        }
+      }
+      return false
+    }
+  
+    // given elements matching the right-most part of a selector, filter out any that don't match the rest
+    function ancestorMatch(el, tokens, dividedTokens, root) {
+      var cand
+      // recursively work backwards through the tokens and up the dom, covering all options
+      function crawl(e, i, p) {
+        while (p = walker[dividedTokens[i]](p, e)) {
+          if (isNode(p) && (interpret.apply(p, q(tokens[i])))) {
+            if (i) {
+              if (cand = crawl(p, i - 1, p)) return cand
+            } else return p
+          }
+        }
+      }
+      return (cand = crawl(el, tokens.length - 1, el)) && (!root || isAncestor(cand, root))
+    }
+  
+    function isNode(el, t) {
+      return el && typeof el === 'object' && (t = el[nodeType]) && (t == 1 || t == 9)
+    }
+  
+    function uniq(ar) {
+      var a = [], i, j;
+      o:
+      for (i = 0; i < ar.length; ++i) {
+        for (j = 0; j < a.length; ++j) if (a[j] == ar[i]) continue o
+        a[a.length] = ar[i]
+      }
+      return a
+    }
+  
+    function arrayLike(o) {
+      return (typeof o === 'object' && isFinite(o.length))
+    }
+  
+    function normalizeRoot(root) {
+      if (!root) return doc
+      if (typeof root == 'string') return qwery(root)[0]
+      if (!root[nodeType] && arrayLike(root)) return root[0]
+      return root
+    }
+  
+    function byId(root, id, el) {
+      // if doc, query on it, else query the parent doc or if a detached fragment rewrite the query and run on the fragment
+      return root[nodeType] === 9 ? root.getElementById(id) :
+        root.ownerDocument &&
+          (((el = root.ownerDocument.getElementById(id)) && isAncestor(el, root) && el) ||
+            (!isAncestor(root, root.ownerDocument) && select('[id="' + id + '"]', root)[0]))
+    }
+  
+    function qwery(selector, _root) {
+      var m, el, root = normalizeRoot(_root)
+  
+      // easy, fast cases that we can dispatch with simple DOM calls
+      if (!root || !selector) return []
+      if (selector === window || isNode(selector)) {
+        return !_root || (selector !== window && isNode(root) && isAncestor(selector, root)) ? [selector] : []
+      }
+      if (selector && arrayLike(selector)) return flatten(selector)
+      if (m = selector.match(easy)) {
+        if (m[1]) return (el = byId(root, m[1])) ? [el] : []
+        if (m[2]) return arrayify(root[byTag](m[2]))
+        if (hasByClass && m[3]) return arrayify(root[byClass](m[3]))
+      }
+  
+      return select(selector, root)
+    }
+  
+    // where the root is not document and a relationship selector is first we have to
+    // do some awkward adjustments to get it to work, even with qSA
+    function collectSelector(root, collector) {
+      return function (s) {
+        var oid, nid
+        if (splittable.test(s)) {
+          if (root[nodeType] !== 9) {
+            // make sure the el has an id, rewrite the query, set root to doc and run it
+            if (!(nid = oid = root.getAttribute('id'))) root.setAttribute('id', nid = '__qwerymeupscotty')
+            s = '[id="' + nid + '"]' + s // avoid byId and allow us to match context element
+            collector(root.parentNode || root, s, true)
+            oid || root.removeAttribute('id')
+          }
+          return;
+        }
+        s.length && collector(root, s, false)
+      }
+    }
+  
+    var isAncestor = 'compareDocumentPosition' in html ?
+      function (element, container) {
+        return (container.compareDocumentPosition(element) & 16) == 16
+      } : 'contains' in html ?
+      function (element, container) {
+        container = container[nodeType] === 9 || container == window ? html : container
+        return container !== element && container.contains(element)
+      } :
+      function (element, container) {
+        while (element = element.parentNode) if (element === container) return 1
+        return 0
+      }
+    , getAttr = function () {
+        // detect buggy IE src/href getAttribute() call
+        var e = doc.createElement('p')
+        return ((e.innerHTML = '<a href="#x">x</a>') && e.firstChild.getAttribute('href') != '#x') ?
+          function (e, a) {
+            return a === 'class' ? e.className : (a === 'href' || a === 'src') ?
+              e.getAttribute(a, 2) : e.getAttribute(a)
+          } :
+          function (e, a) { return e.getAttribute(a) }
+      }()
+    , hasByClass = !!doc[byClass]
+      // has native qSA support
+    , hasQSA = doc.querySelector && doc[qSA]
+      // use native qSA
+    , selectQSA = function (selector, root) {
+        var result = [], ss, e
+        try {
+          if (root[nodeType] === 9 || !splittable.test(selector)) {
+            // most work is done right here, defer to qSA
+            return arrayify(root[qSA](selector))
+          }
+          // special case where we need the services of `collectSelector()`
+          each(ss = selector.split(','), collectSelector(root, function (ctx, s) {
+            e = ctx[qSA](s)
+            if (e.length == 1) result[result.length] = e.item(0)
+            else if (e.length) result = result.concat(arrayify(e))
+          }))
+          return ss.length > 1 && result.length > 1 ? uniq(result) : result
+        } catch (ex) { }
+        return selectNonNative(selector, root)
+      }
+      // no native selector support
+    , selectNonNative = function (selector, root) {
+        var result = [], items, m, i, l, r, ss
+        selector = selector.replace(normalizr, '$1')
+        if (m = selector.match(tagAndOrClass)) {
+          r = classRegex(m[2])
+          items = root[byTag](m[1] || '*')
+          for (i = 0, l = items.length; i < l; i++) {
+            if (r.test(items[i].className)) result[result.length] = items[i]
+          }
+          return result
+        }
+        // more complex selector, get `_qwery()` to do the work for us
+        each(ss = selector.split(','), collectSelector(root, function (ctx, s, rewrite) {
+          r = _qwery(s, ctx)
+          for (i = 0, l = r.length; i < l; i++) {
+            if (ctx[nodeType] === 9 || rewrite || isAncestor(r[i], root)) result[result.length] = r[i]
+          }
+        }))
+        return ss.length > 1 && result.length > 1 ? uniq(result) : result
+      }
+    , configure = function (options) {
+        // configNativeQSA: use fully-internal selector or native qSA where present
+        if (typeof options[useNativeQSA] !== 'undefined')
+          select = !options[useNativeQSA] ? selectNonNative : hasQSA ? selectQSA : selectNonNative
+      }
+  
+    configure({ useNativeQSA: true })
+  
+    qwery.configure = configure
+    qwery.uniq = uniq
+    qwery.is = is
+    qwery.pseudos = {}
+  
+    return qwery
+  });
+  
+
+  provide("qwery", module.exports);
+
+  (function ($) {
+    var q = function () {
+      var r
+      try {
+        r = require('qwery')
+      } catch (ex) {
+        r = require('qwery-mobile')
+      } finally {
+        return r
+      }
+    }()
+  
+    $.pseudos = q.pseudos
+  
+    $._select = function (s, r) {
+      // detect if sibling module 'bonzo' is available at run-time
+      // rather than load-time since technically it's not a dependency and
+      // can be loaded in any order
+      // hence the lazy function re-definition
+      return ($._select = (function () {
+        var b
+        if (typeof $.create == 'function') return function (s, r) {
+          return /^\s*</.test(s) ? $.create(s, r) : q(s, r)
+        }
+        try {
+          b = require('bonzo')
+          return function (s, r) {
+            return /^\s*</.test(s) ? b.create(s, r) : q(s, r)
+          }
+        } catch (e) { }
+        return q
+      })())(s, r)
+    }
+  
+    $.ender({
+        find: function (s) {
+          var r = [], i, l, j, k, els
+          for (i = 0, l = this.length; i < l; i++) {
+            els = q(s, this[i])
+            for (j = 0, k = els.length; j < k; j++) r.push(els[j])
+          }
+          return $(q.uniq(r))
+        }
+      , and: function (s) {
+          var plus = $(s)
+          for (var i = this.length, j = 0, l = this.length + plus.length; i < l; i++, j++) {
+            this[i] = plus[j]
+          }
+          this.length += plus.length
+          return this
+        }
+      , is: function(s, r) {
+          var i, l
+          for (i = 0, l = this.length; i < l; i++) {
+            if (q.is(this[i], s, r)) {
+              return true
+            }
+          }
+          return false
+        }
+    }, true)
+  }(ender));
+  
+
+}());
+
