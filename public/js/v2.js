@@ -39,45 +39,48 @@ function amet(){
       }
 }
 
+function startAnim(){
+  setInterval(function(){
+      if(!paused){
+        var now = moment();
+        if(now.diff(time, 'seconds') == diff){
+          reconf = !reconf;
+        }
+        if(!reconf){
+          var image1 = images[randRange(0,images.length-1)];    
+          var image2 = images[randRange(0,images.length-1)];
+          if(image2.attr('filters') == false){
+            image2.attr('filters',  new filter.Grayscale(1));
+          }else{
+            image2.attr('filters',  new filter.Grayscale(0));
+          }
 
-setInterval(function(){
-    if(!paused){
-      var now = moment();
-      if(now.diff(time, 'seconds') == diff){
-        reconf = !reconf;
-      }
-      if(!reconf){
-        var image1 = images[randRange(0,images.length-1)];    
-        var image2 = images[randRange(0,images.length-1)];
-        if(image2.attr('filters') == false){
-          image2.attr('filters',  new filter.Grayscale(1));
+          if(image1.attr('filters') == false){
+            image1.attr('filters',  new filter.Grayscale(1));
+          }else{
+            image1.attr('filters',  new filter.Grayscale(0));
+          }
+
+          image1.animate('.5s', {x:image2.attr('x'), y:image2.attr('y')}, {easing: 'expoInOut'});
+          image2.animate('.5s', {x:image1.attr('x'), y:image1.attr('y')}, {easing: 'expoInOut'});
         }else{
-          image2.attr('filters',  new filter.Grayscale(0));
+          for(var i=0; i< images.length;i++){
+            var image1 = images[i];
+            var xy = image1._attributes._source.split('crop')[1].split('.')[0].split('_');
+            image1.animate('.35s',{
+              x:parseInt(xy[0]),
+              y:parseInt(xy[1])
+            },  {easing: 'expoInOut'});
+          }
+          time = moment();
+          diff = randRange(2,10);
+          reconf = !reconf;
         }
-
-        if(image1.attr('filters') == false){
-          image1.attr('filters',  new filter.Grayscale(1));
-        }else{
-          image1.attr('filters',  new filter.Grayscale(0));
-        }
-
-        image1.animate('.5s', {x:image2.attr('x'), y:image2.attr('y')}, {easing: 'expoInOut'});
-        image2.animate('.5s', {x:image1.attr('x'), y:image1.attr('y')}, {easing: 'expoInOut'});
-      }else{
-        for(var i=0; i< images.length;i++){
-          var image1 = images[i];
-          var xy = image1._attributes._source.split('crop')[1].split('.')[0].split('_');
-          image1.animate('.35s',{
-            x:parseInt(xy[0]),
-            y:parseInt(xy[1])
-          },  {easing: 'expoInOut'});
-        }
-        time = moment();
-        diff = randRange(2,10);
-        reconf = !reconf;
       }
-    }
-},700);
+  },700);
+}
+
+setTimeout(startAnim, 1000);
 
 stage.on('keydown', function(e){
   console.log(e);
