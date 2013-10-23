@@ -3,6 +3,7 @@
  */
 
 var time = moment();
+var fps = 400;
 var diff = randRange(10,15);
 var reconf = false,
     paused = false;
@@ -23,7 +24,7 @@ var imageHandler = function(){
 
 function init(){
   while(!((currentX == 700) && (currentY == 450))){
-    var url = "../img/temp/crop"+currentX+"_"+currentY+".jpg";
+    var url = "../img/harem/crop"+currentX+"_"+currentY+".jpg";
     images.push(new Bitmap(url).on('load', imageHandler));
     amet();
   }
@@ -42,27 +43,14 @@ function amet(){
 function startAnim(){
   setInterval(function(){
       if(!paused){
-        var now = moment();
-        if(now.diff(time, 'seconds') == diff){
-          reconf = !reconf;
-        }
         if(!reconf){
           var image1 = images[randRange(0,images.length-1)];    
           var image2 = images[randRange(0,images.length-1)];
           if(image2.attr('filters') == false){
             image2.attr('filters',  new filter.Grayscale(1));
-          }else{
-            image2.attr('filters',  new filter.Grayscale(0));
           }
-
-          if(image1.attr('filters') == false){
-            image1.attr('filters',  new filter.Grayscale(1));
-          }else{
-            image1.attr('filters',  new filter.Grayscale(0));
-          }
-
-          image1.animate('.5s', {x:image2.attr('x'), y:image2.attr('y')}, {easing: 'expoInOut'});
-          image2.animate('.5s', {x:image1.attr('x'), y:image1.attr('y')}, {easing: 'expoInOut'});
+          image1.animate('.3s', {x:image2.attr('x'), y:image2.attr('y')}, {easing: 'expoInOut'});
+          image2.animate('.3s', {x:image1.attr('x'), y:image1.attr('y')}, {easing: 'expoInOut'});
         }else{
           for(var i=0; i< images.length;i++){
             var image1 = images[i];
@@ -72,22 +60,22 @@ function startAnim(){
               y:parseInt(xy[1])
             },  {easing: 'expoInOut'});
           }
-          time = moment();
-          diff = randRange(2,10);
+
           reconf = !reconf;
         }
       }
-  },700);
+  },fps);
 }
 
-setTimeout(startAnim, 1000);
-
 stage.on('keydown', function(e){
-  console.log(e);
   if(e.keyCode == 80){
     paused = !paused;
-    time = moment();
-    diff = randRange(2,10);
-  }  
+  }
+
+  if(e.keyCode == 82){
+    reconf = !reconf;
+  }
 });
+setTimeout(startAnim, 1000);
+
 

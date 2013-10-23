@@ -25,6 +25,29 @@ body{
   position:absolute; top:0; bottom:0; left:0; right:0;
 			margin:auto; height:500px; width:700px;
 }
+
+.v3{
+  border:none;
+  position:absolute; top:0; bottom:0; left:0; right:0;
+			margin: 100px auto; height:590px; width:1000px;
+
+}
+
+
+.v4{
+  border:none;
+  position:absolute; top:0; bottom:0; left:0; right:0;
+			margin: 100px auto; height:600px; width:902px;
+
+}
+
+.v5{
+  border:none;
+  position:absolute; top:0; bottom:0; left:0; right:0;
+			margin: 100px auto; height:877px; width:700px;
+
+}
+
 header{
   display: inline-block;
   vertical-align: top;
@@ -61,12 +84,32 @@ nav #next{
   float:right;
 }
 
-header a{
-  font-style:italic;
+nav.nav2, nav.nav3, nav.nav4, nav.nav5{
+  width:100%;
+}
+a{
   color: rgb(35,35,35);
   font-weight:600;
 }
 
-header a:hover{
+a:hover{
   opacity:0.8;
+}
+
+a:visited{
+  color:black;black
+}
+
+#title{
+  margin:0;
+  text-align:center;
+  font-size:36px;
+  font-style:italic;
+}
+
+#subtitle{
+  font-size:18px;
+  text-align:center;
+  font-weight:300;
+  margin:0;
 }

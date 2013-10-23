@@ -28,12 +28,9 @@ app.configure('production', function(){
 });
 
 // Routes
-
 app.get('/1', routes.robots);
 app.get('/2', routes.dinosaurs);
-app.get('/3', routes.aliens);
 
 app.listen(3117, function(){
-  console.log("Express server listening on port %d in %s mode", this.address().port, app.settings.env);
-  
+  console.log("Express server listening on port %d in %s mode", this.address().port, app.settings.env); 
 });

@@ -140,9 +140,11 @@
     else this[name] = definition()
   }('morpheus', function () {
   
-    var context = this
-      , doc = document
+    var doc = document
       , win = window
+      , perf = win.performance
+      , perfNow = perf && (perf.now || perf.webkitNow || perf.msNow || perf.mozNow)
+      , now = perfNow ? function () { return perfNow.call(perf) } : function () { return +new Date() }
       , html = doc.documentElement
       , thousand = 1000
       , rgbOhex = /^rgb\(|#/
@@ -155,66 +157,69 @@
         // these elements do not require 'px'
       , unitless = { lineHeight: 1, zoom: 1, zIndex: 1, opacity: 1, transform: 1}
   
-        // which property name does this browser use for transform
-      , transform = function () {
-          var styles = doc.createElement('a').style
-            , props = ['webkitTransform','MozTransform','OTransform','msTransform','Transform'], i
-          for (i = 0; i < props.length; i++) {
-            if (props[i] in styles) return props[i]
+    // which property name does this browser use for transform
+    var transform = function () {
+      var styles = doc.createElement('a').style
+        , props = ['webkitTransform', 'MozTransform', 'OTransform', 'msTransform', 'Transform']
+        , i
+      for (i = 0; i < props.length; i++) {
+        if (props[i] in styles) return props[i]
+      }
+    }()
+  
+    // does this browser support the opacity property?
+    var opasity = function () {
+      return typeof doc.createElement('a').style.opacity !== 'undefined'
+    }()
+  
+    // initial style is determined by the elements themselves
+    var getStyle = doc.defaultView && doc.defaultView.getComputedStyle ?
+      function (el, property) {
+        property = property == 'transform' ? transform : property
+        var value = null
+          , computed = doc.defaultView.getComputedStyle(el, '')
+        computed && (value = computed[camelize(property)])
+        return el.style[property] || value
+      } : html.currentStyle ?
+  
+      function (el, property) {
+        property = camelize(property)
+  
+        if (property == 'opacity') {
+          var val = 100
+          try {
+            val = el.filters['DXImageTransform.Microsoft.Alpha'].opacity
+          } catch (e1) {
+            try {
+              val = el.filters('alpha').opacity
+            } catch (e2) {}
           }
-        }()
+          return val / 100
+        }
+        var value = el.currentStyle ? el.currentStyle[property] : null
+        return el.style[property] || value
+      } :
+      function (el, property) {
+        return el.style[camelize(property)]
+      }
   
-        // does this browser support the opacity property?
-      , opasity = function () {
-          return typeof doc.createElement('a').style.opacity !== 'undefined'
-        }()
+    var frame = function () {
+      // native animation frames
+      // http://webstuff.nfshost.com/anim-timing/Overview.html
+      // http://dev.chromium.org/developers/design-documents/requestanimationframe-implementation
+      return win.requestAnimationFrame  ||
+        win.webkitRequestAnimationFrame ||
+        win.mozRequestAnimationFrame    ||
+        win.msRequestAnimationFrame     ||
+        win.oRequestAnimationFrame      ||
+        function (callback) {
+          win.setTimeout(function () {
+            callback(+new Date())
+          }, 17) // when I was 17..
+        }
+    }()
   
-        // initial style is determined by the elements themselves
-      , getStyle = doc.defaultView && doc.defaultView.getComputedStyle ?
-          function (el, property) {
-            property = property == 'transform' ? transform : property
-            var value = null
-              , computed = doc.defaultView.getComputedStyle(el, '')
-            computed && (value = computed[camelize(property)])
-            return el.style[property] || value
-          } : html.currentStyle ?
-  
-          function (el, property) {
-            property = camelize(property)
-  
-            if (property == 'opacity') {
-              var val = 100
-              try {
-                val = el.filters['DXImageTransform.Microsoft.Alpha'].opacity
-              } catch (e1) {
-                try {
-                  val = el.filters('alpha').opacity
-                } catch (e2) {}
-              }
-              return val / 100
-            }
-            var value = el.currentStyle ? el.currentStyle[property] : null
-            return el.style[property] || value
-          } :
-          function (el, property) {
-            return el.style[camelize(property)]
-          }
-      , frame = function () {
-          // native animation frames
-          // http://webstuff.nfshost.com/anim-timing/Overview.html
-          // http://dev.chromium.org/developers/design-documents/requestanimationframe-implementation
-          return win.requestAnimationFrame  ||
-            win.webkitRequestAnimationFrame ||
-            win.mozRequestAnimationFrame    ||
-            win.oRequestAnimationFrame      ||
-            win.msRequestAnimationFrame     ||
-            function (callback) {
-              win.setTimeout(function () {
-                callback(+new Date())
-              }, 11) // these go to eleven
-            }
-        }()
-      , children = []
+    var children = []
   
     function has(array, elem, i) {
       if (Array.prototype.indexOf) return array.indexOf(elem)
@@ -223,10 +228,13 @@
       }
     }
   
-    function render(t) {
+    function render(timestamp) {
       var i, count = children.length
+      // if we're using a high res timer, make sure timestamp is not the old epoch-based value.
+      // http://updates.html5rocks.com/2012/05/requestAnimationFrame-API-now-with-sub-millisecond-precision
+      if (perfNow && timestamp > 1e12) timestamp = now()
       for (i = count; i--;) {
-        children[i](t)
+        children[i](timestamp)
       }
       children.length && frame(render)
     }
@@ -236,9 +244,9 @@
     }
   
     function die(f) {
-      var i, rest, index = has(children, f)
+      var rest, index = has(children, f)
       if (index >= 0) {
-        rest = children.slice(index+1)
+        rest = children.slice(index + 1)
         children.length = index
         children = children.concat(rest)
       }
@@ -268,7 +276,7 @@
   
     // convert rgb and short hex to long hex
     function toHex(c) {
-      var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c)
+      var m = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
       return (m ? rgb(m[1], m[2], m[3]) : c)
         .replace(/#(\w)(\w)(\w)$/, '#$1$1$2$2$3$3') // short skirt to long jacket
     }
@@ -285,6 +293,11 @@
       return typeof f == 'function'
     }
   
+    function nativeTween(t) {
+      // default to a pleasant-to-the-eye easeOut (like native animations)
+      return Math.sin(t * Math.PI / 2)
+    }
+  
     /**
       * Core tween method that requests each frame
       * @param duration: time in milliseconds. defaults to 1000
@@ -296,17 +309,13 @@
       * @returns method to stop the animation
       */
     function tween(duration, fn, done, ease, from, to) {
-      ease = fun(ease) ? ease : morpheus.easings[ease] || function (t) {
-        // default to a pleasant-to-the-eye easeOut (like native animations)
-        return Math.sin(t * Math.PI / 2)
-      }
+      ease = fun(ease) ? ease : morpheus.easings[ease] || nativeTween
       var time = duration || thousand
         , self = this
         , diff = to - from
-        , start = +new Date()
+        , start = now()
         , stop = 0
         , end = 0
-      live(run)
   
       function run(t) {
         var delta = t - start
@@ -322,6 +331,9 @@
           fn((diff * ease(delta / time)) + from) :
           fn(ease(delta / time))
       }
+  
+      live(run)
+  
       return {
         stop: function (jump) {
           stop = 1
@@ -372,7 +384,7 @@
     function getTweenVal(pos, units, begin, end, k, i, v) {
       if (k == 'transform') {
         v = {}
-        for(var t in begin[i][k]) {
+        for (var t in begin[i][k]) {
           v[t] = (t in end[i][k]) ? Math.round(((end[i][k][t] - begin[i][k][t]) * pos + begin[i][k][t]) * thousand) / thousand : begin[i][k][t]
         }
         return v
@@ -421,11 +433,6 @@
         , originalLeft
         , originalTop
   
-      delete options.complete;
-      delete options.duration;
-      delete options.easing;
-      delete options.bezier;
-  
       if (points) {
         // remember the original values for top|left
         originalLeft = options.left;
@@ -454,12 +461,20 @@
           bez[i] = fun(points) ? points(els[i], xy) : points
           bez[i].push(xy)
           bez[i].unshift([
-              parseInt(left, 10)
-            , parseInt(top, 10)
+            parseInt(left, 10),
+            parseInt(top, 10)
           ])
         }
   
         for (var k in options) {
+          switch (k) {
+          case 'complete':
+          case 'duration':
+          case 'easing':
+          case 'bezier':
+            continue;
+            break
+          }
           var v = getStyle(els[i], k), unit
             , tmp = fun(options[k]) ? options[k](els[i]) : options[k]
           if (typeof tmp == 'string' &&
@@ -474,7 +489,7 @@
             typeof tmp == 'string' && rgbOhex.test(tmp) ?
               toHex(v).slice(1) :
               parseFloat(v)
-          end[i][k] = k == 'transform' ? parseTransform(tmp,begin[i][k]) :
+          end[i][k] = k == 'transform' ? parseTransform(tmp, begin[i][k]) :
             typeof tmp == 'string' && tmp.charAt(0) == '#' ?
               toHex(tmp).slice(1) :
               by(tmp, parseFloat(v));
@@ -515,7 +530,7 @@
   
     return morpheus
   
-  })
+  });
   
 
   provide("morpheus", module.exports);
@@ -1110,7 +1125,7 @@
           }
   
           type = isTypeStr && typeSpec.replace(nameRegex, '')
-          if (type && customEvents[type]) type = customEvents[type].type
+          if (type && customEvents[type]) type = customEvents[type].base
   
           if (!typeSpec || isTypeStr) {
             // off(el) or off(el, t1.ns) or off(el, .ns) or off(el, .ns1.ns2.ns3)
@@ -1372,7 +1387,7 @@
     */
   (function (name, context, definition) {
     if (typeof module != 'undefined' && module.exports) module.exports = definition()
-    else if (typeof context['define'] == 'function' && context['define']['amd']) define(definition)
+    else if (typeof define == 'function' && define.amd) define(definition)
     else context[name] = definition()
   })('bonzo', this, function() {
     var win = window
@@ -1983,7 +1998,7 @@
             each(c, function (c) {
               if (c) {
                 typeof opt_condition !== 'undefined' ?
-                  opt_condition ? addClass(el, c) : removeClass(el, c) :
+                  opt_condition ? !hasClass(el, c) && addClass(el, c) : removeClass(el, c) :
                   hasClass(el, c) ? removeClass(el, c) : addClass(el, c)
               }
             })
@@ -2222,7 +2237,7 @@
                 ? Math.max(el.body.scrollWidth, el.body.offsetWidth, de.scrollWidth, de.offsetWidth, de.clientWidth)
                 : el.offsetWidth
             , height = de
-                ? Math.max(el.body.scrollHeight, el.body.offsetHeight, de.scrollWidth, de.offsetWidth, de.clientHeight)
+                ? Math.max(el.body.scrollHeight, el.body.offsetHeight, de.scrollHeight, de.offsetHeight, de.clientHeight)
                 : el.offsetHeight
   
           orig && this.first().css(orig)
@@ -2452,7 +2467,7 @@
           do {
             // tbody special case for IE<8, creates tbody on any empty table
             // we don't want it if we're just after a <thead>, <caption>, etc.
-            if ((!tag || el.nodeType == 1) && (!tb || el.tagName.toLowerCase() != 'tbody')) {
+            if ((!tag || el.nodeType == 1) && (!tb || (el.tagName && el.tagName != 'TBODY'))) {
               els.push(el)
             }
           } while (el = el.nextSibling)
